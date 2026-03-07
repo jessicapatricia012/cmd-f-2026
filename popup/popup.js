@@ -1,136 +1,155 @@
 // Popup script
-// Handles: toggle state, mode selection, communicating settings to service worker
+// Handles: popup UI interactions, local camera preview, and AFK state updates.
 
-function sendMessage(message) {
-  return chrome.runtime.sendMessage(message);
-}
+const CHANNEL = {
+  GET_STATE: "AFK_GET_STATE",
+  SET_STATE: "AFK_SET_STATE",
+  STATE_UPDATED: "AFK_STATE_UPDATED",
+};
 
-function applyStateToUI(state, elements) {
-  elements.toggle.checked = Boolean(state.enabled);
-  elements.gestures.checked = Boolean(state.gesturesEnabled);
-  elements.voice.checked = Boolean(state.voiceEnabled);
-
-  const cameraOn = state.enabled && state.gesturesEnabled;
-  elements.cameraStatus.textContent = cameraOn ? "Camera on" : "Camera off";
-}
-
-document.addEventListener("DOMContentLoaded", async () => {
-  const elements = {
-    toggle: document.getElementById("toggle"),
-    gestures: document.getElementById("gestures"),
-    voice: document.getElementById("voice"),
-    cameraStatus: document.getElementById("camera-status"),
-  };
-
-  if (!elements.toggle || !elements.gestures || !elements.voice || !elements.cameraStatus) {
-    return;
-  }
-
-  const initial = await sendMessage({ type: "AFK_GET_STATE" });
-  if (initial?.ok && initial.state) {
-    applyStateToUI(initial.state, elements);
-  }
-
-  async function updateState(partial) {
-    const result = await sendMessage({
-      type: "AFK_SET_STATE",
-      payload: partial,
-    });
-    if (result?.ok && result.state) {
-      applyStateToUI(result.state, elements);
-    }
-  }
-
-  elements.toggle.addEventListener("change", () => {
-    updateState({ enabled: elements.toggle.checked });
-  });
-
-  elements.gestures.addEventListener("change", () => {
-    updateState({ gesturesEnabled: elements.gestures.checked });
-  });
-
-  elements.voice.addEventListener("change", () => {
-    updateState({ voiceEnabled: elements.voice.checked });
-  });
-
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type === "AFK_STATE_UPDATED" && message.payload) {
-      applyStateToUI(message.payload, elements);
-    }
-  });
-});
-
-// ── Element refs ───────────────────────────────────────────────────────────
-const mainToggle    = document.getElementById("main-toggle");
-const statusText    = document.getElementById("status-text");
-const camDot        = document.getElementById("cam-dot");
-const camLabel      = document.getElementById("cam-label");
-const toggleGesture = document.getElementById("toggle-gesture");
-const toggleVoice   = document.getElementById("toggle-voice");
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-function setMainEnabled(enabled) {
+function setMainEnabled(mainToggle, statusText, enabled) {
   mainToggle.setAttribute("aria-checked", String(enabled));
   statusText.textContent = enabled ? "Enabled" : "Disabled";
   statusText.classList.toggle("is-on", enabled);
 }
 
-function setCamLive(live) {
+function setCamLive(camDot, camLabel, live) {
   camDot.classList.toggle("is-live", live);
   camLabel.classList.toggle("is-live", live);
   camLabel.textContent = live ? "Camera live" : "Camera inactive";
 }
 
-function setMiniToggle(btn, enabled) {
-  btn.setAttribute("aria-checked", String(enabled));
+function setMiniToggle(toggle, enabled) {
+  toggle.setAttribute("aria-checked", String(enabled));
 }
 
-// ── Load initial state from chrome.storage ─────────────────────────────────
-chrome.storage.sync.get(
-  ["afkEnabled", "gestureEnabled", "voiceEnabled", "cameraActive"],
-  ({ afkEnabled = false, gestureEnabled = true, voiceEnabled = true, cameraActive = false }) => {
-    setMainEnabled(afkEnabled);
-    setCamLive(cameraActive);
-    setMiniToggle(toggleGesture, gestureEnabled);
-    setMiniToggle(toggleVoice, voiceEnabled);
+function setWakewordToggleEnabled(toggle, enabled) {
+  toggle.disabled = !enabled;
+  toggle.style.opacity = enabled ? "1" : "0.45";
+  toggle.style.pointerEvents = enabled ? "auto" : "none";
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const elements = {
+    mainToggle: document.getElementById("main-toggle"),
+    statusText: document.getElementById("status-text"),
+    camDot: document.getElementById("cam-dot"),
+    camLabel: document.getElementById("cam-label"),
+    camFeedWrap: document.getElementById("cam-feed-wrap"),
+    camPlaceholder: document.getElementById("cam-placeholder"),
+    camPreview: document.getElementById("cam-preview"),
+    camStartBtn: document.getElementById("cam-start-btn"),
+    gestureLabel: document.getElementById("gesture-label"),
+    toggleGesture: document.getElementById("toggle-gesture"),
+    toggleVoice: document.getElementById("toggle-voice"),
+    toggleWakeword: document.getElementById("toggle-wakeword"),
+  };
+
+  if (Object.values(elements).some((value) => !value)) return;
+
+  let stream = null;
+  let gestureTimer = null;
+
+  const applyStateToUI = (state) => {
+    const enabled = Boolean(state.enabled);
+    const gesturesEnabled = Boolean(state.gesturesEnabled);
+    const voiceEnabled = Boolean(state.voiceEnabled);
+    const requireWakeWord = state.requireWakeWord !== false;
+
+    setMainEnabled(elements.mainToggle, elements.statusText, enabled);
+    setMiniToggle(elements.toggleGesture, gesturesEnabled);
+    setMiniToggle(elements.toggleVoice, voiceEnabled);
+    setMiniToggle(elements.toggleWakeword, requireWakeWord);
+    setWakewordToggleEnabled(elements.toggleWakeword, voiceEnabled);
+
+    const cameraLive = enabled && gesturesEnabled && Boolean(stream);
+    setCamLive(elements.camDot, elements.camLabel, cameraLive);
+  };
+
+  const updateState = async (partial) => {
+    try {
+      const result = await chrome.runtime.sendMessage({
+        type: CHANNEL.SET_STATE,
+        payload: partial,
+      });
+      if (result?.ok && result.state) {
+        applyStateToUI(result.state);
+      }
+    } catch (error) {
+      console.warn("[AFK] popup update failed:", error);
+    }
+  };
+
+  async function startCamera() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      elements.camPreview.srcObject = stream;
+      elements.camPreview.classList.add("visible");
+      elements.camPlaceholder.classList.add("hidden");
+      elements.camFeedWrap.classList.add("is-live");
+      setCamLive(elements.camDot, elements.camLabel, true);
+      elements.camStartBtn.classList.add("hidden");
+    } catch (_error) {
+      elements.camLabel.textContent = "No permission";
+    }
   }
-);
 
-// ── Main toggle click ──────────────────────────────────────────────────────
-mainToggle.addEventListener("click", () => {
-  const next = mainToggle.getAttribute("aria-checked") !== "true";
-  setMainEnabled(next);
-  chrome.storage.sync.set({ afkEnabled: next });
-  // Notify background service worker
-  chrome.runtime.sendMessage({ type: "SET_ENABLED", payload: next });
-});
-
-// ── Gesture toggle ─────────────────────────────────────────────────────────
-toggleGesture.addEventListener("click", () => {
-  const next = toggleGesture.getAttribute("aria-checked") !== "true";
-  setMiniToggle(toggleGesture, next);
-  chrome.storage.sync.set({ gestureEnabled: next });
-  chrome.runtime.sendMessage({ type: "SET_GESTURE", payload: next });
-});
-
-// ── Voice toggle ───────────────────────────────────────────────────────────
-toggleVoice.addEventListener("click", () => {
-  const next = toggleVoice.getAttribute("aria-checked") !== "true";
-  setMiniToggle(toggleVoice, next);
-  chrome.storage.sync.set({ voiceEnabled: next });
-  chrome.runtime.sendMessage({ type: "SET_VOICE", payload: next });
-});
-
-// ── Listen for camera state changes from content scripts ───────────────────
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "CAMERA_STATE") {
-    setCamLive(msg.payload);
-    chrome.storage.sync.set({ cameraActive: msg.payload });
+  function stopCamera() {
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+      stream = null;
+    }
+    elements.camPreview.srcObject = null;
+    elements.camPreview.classList.remove("visible");
+    elements.camPlaceholder.classList.remove("hidden");
+    elements.camFeedWrap.classList.remove("is-live");
+    setCamLive(elements.camDot, elements.camLabel, false);
+    elements.camStartBtn.classList.remove("hidden");
+    elements.gestureLabel.classList.remove("show");
   }
-});
 
-// ── Reflect storage changes in real time ───────────────────────────────────
-chrome.storage.onChanged.addListener((changes) => {
-  if ("afkEnabled"   in changes) setMainEnabled(changes.afkEnabled.newValue);
-  if ("cameraActive" in changes) setCamLive(changes.cameraActive.newValue);
+  const initial = await chrome.runtime.sendMessage({ type: CHANNEL.GET_STATE });
+  if (initial?.ok && initial.state) {
+    applyStateToUI(initial.state);
+  }
+
+  const demoGestures = ["Click", "Scroll Down", "Zoom In", "Next Tab", "Go Back", "Drag"];
+  setInterval(() => {
+    if (!stream || Math.random() > 0.35) return;
+    elements.gestureLabel.textContent =
+      demoGestures[Math.floor(Math.random() * demoGestures.length)];
+    elements.gestureLabel.classList.add("show");
+    clearTimeout(gestureTimer);
+    gestureTimer = setTimeout(() => elements.gestureLabel.classList.remove("show"), 1100);
+  }, 1800);
+
+  elements.mainToggle.addEventListener("click", () => {
+    const next = elements.mainToggle.getAttribute("aria-checked") !== "true";
+    updateState({ enabled: next });
+    if (!next) stopCamera();
+  });
+
+  elements.camStartBtn.addEventListener("click", startCamera);
+
+  elements.toggleGesture.addEventListener("click", () => {
+    const next = elements.toggleGesture.getAttribute("aria-checked") !== "true";
+    updateState({ gesturesEnabled: next });
+  });
+
+  elements.toggleVoice.addEventListener("click", () => {
+    const next = elements.toggleVoice.getAttribute("aria-checked") !== "true";
+    updateState({ voiceEnabled: next });
+  });
+
+  elements.toggleWakeword.addEventListener("click", () => {
+    if (elements.toggleWakeword.disabled) return;
+    const next = elements.toggleWakeword.getAttribute("aria-checked") !== "true";
+    updateState({ requireWakeWord: next });
+  });
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === CHANNEL.STATE_UPDATED && message.payload) {
+      applyStateToUI(message.payload);
+    }
+  });
 });

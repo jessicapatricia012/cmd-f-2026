@@ -6,6 +6,7 @@ const DEFAULT_STATE = {
   enabled: false,
   gesturesEnabled: true,
   voiceEnabled: true,
+  requireWakeWord: true,
 };
 
 async function getState() {

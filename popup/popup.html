@@ -247,9 +247,19 @@
         <div class="feature-row__icon">🎙</div>
         <div class="feature-row__info">
           <span class="feature-row__name">Voice Commands</span>
-          <span class="feature-row__desc">"Scroll down", "Next tab"</span>
+          <span class="feature-row__desc">Say commands like "AFK scroll down"</span>
         </div>
         <button class="mini-toggle" id="toggle-voice" role="switch" aria-checked="true" aria-label="Toggle voice commands">
+          <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+        </button>
+      </div>
+      <div class="feature-row">
+        <div class="feature-row__icon">🧠</div>
+        <div class="feature-row__info">
+          <span class="feature-row__name">Require "AFK" Wake Word</span>
+          <span class="feature-row__desc">Strict mode for fewer false triggers</span>
+        </div>
+        <button class="mini-toggle" id="toggle-wakeword" role="switch" aria-checked="true" aria-label="Require AFK wake word">
           <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
         </button>
       </div>
@@ -318,76 +328,6 @@
     </footer>
   </div>
 
-  <script>
-    const mainToggle     = document.getElementById("main-toggle");
-    const statusText     = document.getElementById("status-text");
-    const camDot         = document.getElementById("cam-dot");
-    const camLabel       = document.getElementById("cam-label");
-    const camFeedWrap    = document.getElementById("cam-feed-wrap");
-    const camPlaceholder = document.getElementById("cam-placeholder");
-    const camPreview     = document.getElementById("cam-preview");
-    const camStartBtn    = document.getElementById("cam-start-btn");
-    const gestureLabel   = document.getElementById("gesture-label");
-    const toggleGesture  = document.getElementById("toggle-gesture");
-    const toggleVoice    = document.getElementById("toggle-voice");
-
-    let stream = null;
-    let gestureTimer = null;
-
-    async function startCamera() {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        camPreview.srcObject = stream;
-        camPreview.classList.add("visible");
-        camPlaceholder.classList.add("hidden");
-        camFeedWrap.classList.add("is-live");
-        camDot.classList.add("is-live");
-        camLabel.classList.add("is-live");
-        camLabel.textContent = "Live";
-        camStartBtn.classList.add("hidden");
-      } catch (e) {
-        camLabel.textContent = "No permission";
-      }
-    }
-
-    function stopCamera() {
-      if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
-      camPreview.srcObject = null;
-      camPreview.classList.remove("visible");
-      camPlaceholder.classList.remove("hidden");
-      camFeedWrap.classList.remove("is-live");
-      camDot.classList.remove("is-live");
-      camLabel.classList.remove("is-live");
-      camLabel.textContent = "Off";
-      camStartBtn.classList.remove("hidden");
-      gestureLabel.classList.remove("show");
-    }
-
-    // Demo: randomly show gesture labels when camera is live
-    const demoGestures = ["Click", "Scroll ↓", "Zoom In", "Tab →", "Back ←", "Drag"];
-    setInterval(() => {
-      if (!stream || Math.random() > 0.35) return;
-      gestureLabel.textContent = demoGestures[Math.floor(Math.random() * demoGestures.length)];
-      gestureLabel.classList.add("show");
-      clearTimeout(gestureTimer);
-      gestureTimer = setTimeout(() => gestureLabel.classList.remove("show"), 1100);
-    }, 1800);
-
-    mainToggle.addEventListener("click", () => {
-      const next = mainToggle.getAttribute("aria-checked") !== "true";
-      mainToggle.setAttribute("aria-checked", String(next));
-      statusText.textContent = next ? "Enabled" : "Disabled";
-      statusText.classList.toggle("is-on", next);
-      next ? startCamera() : stopCamera();
-    });
-
-    camStartBtn.addEventListener("click", startCamera);
-
-    [toggleGesture, toggleVoice].forEach(btn => {
-      btn.addEventListener("click", () => {
-        btn.setAttribute("aria-checked", String(btn.getAttribute("aria-checked") !== "true"));
-      });
-    });
-  </script>
+  <script src="popup.js"></script>
 </body>
 </html>

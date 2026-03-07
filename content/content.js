@@ -17,6 +17,7 @@ const INITIAL_STATE = {
   enabled: false,
   gesturesEnabled: true,
   voiceEnabled: true,
+  requireWakeWord: true,
 };
 
 let currentState = { ...INITIAL_STATE };
@@ -72,6 +73,10 @@ function updateRuntimeModules() {
   } else {
     voiceEngine?.stop?.();
   }
+
+  voiceEngine?.setConfig?.({
+    requireWakeWord: Boolean(currentState.requireWakeWord),
+  });
 
   hud?.setState?.({
     enabled,
