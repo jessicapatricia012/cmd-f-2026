@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>AFK — Voice Engine Test</title>
+    <style>
+      body { font-family: monospace; padding: 24px; background: #111; color: #eee; }
+      h1 { font-size: 1rem; margin-bottom: 16px; color: #aaa; }
+      button { padding: 8px 16px; margin-right: 8px; cursor: pointer; }
+      #log { margin-top: 20px; border-top: 1px solid #333; padding-top: 16px; }
+      .entry { margin: 4px 0; }
+      .partial { color: #94a3b8; }
+      .committed { color: #4ade80; }
+      .info { color: #60a5fa; }
+      .error { color: #f87171; }
+    </style>
+  </head>
+  <body>
+    <h1>AFK / voice engine test</h1>
+    <button id="start">Start</button>
+    <button id="stop" disabled>Stop</button>
+    <div id="log"></div>
+
+    <script type="module">
+      import { Scribe, RealtimeEvents } from "https://esm.sh/@elevenlabs/client";
+
+      const TOKEN_SERVER = "http://localhost:5001/scribe-token";
+
+      const log = (msg, type = "info") => {
+        const el = document.createElement("div");
+        el.className = `entry ${type}`;
+        el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        document.getElementById("log").prepend(el);
+      };
+
+      let connection = null;
+
+      document.getElementById("start").onclick = async () => {
+        document.getElementById("start").disabled = true;
+        document.getElementById("stop").disabled = false;
+
+        try {
+          log("Fetching token...");
+          const res = await fetch(TOKEN_SERVER);
+          const { token } = await res.json();
+          log(`Token received: ${token.slice(0, 12)}...`);
+
+          connection = Scribe.connect({
+            token,
+            modelId: "scribe_v2_realtime",
+            includeTimestamps: false,
+            microphone: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+
+          connection.on(RealtimeEvents.SESSION_STARTED, () => log("Session started — speak now"));
+          connection.on(RealtimeEvents.OPEN, () => log("Connection opened"));
+          connection.on(RealtimeEvents.CLOSE, () => log("Connection closed"));
+
+          connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+            log(`Partial: "${data.text}"`, "partial");
+          });
+
+          connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+            log(`Committed: "${data.text}"`, "committed");
+          });
+
+          connection.on(RealtimeEvents.ERROR, (error) => {
+            log(`Error: ${JSON.stringify(error)}`, "error");
+          });
+
+        } catch (err) {
+          log(`Error: ${err.message}`, "error");
+          document.getElementById("start").disabled = false;
+          document.getElementById("stop").disabled = true;
+        }
+      };
+
+      document.getElementById("stop").onclick = () => {
+        connection?.close();
+        document.getElementById("start").disabled = false;
+        document.getElementById("stop").disabled = true;
+        log("Stopped");
+      };
+    </script>
+  </body>
+</html>
