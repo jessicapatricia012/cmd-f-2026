@@ -1,0 +1,41 @@
+/* Popup styles */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, sans-serif;
+  width: 240px;
+  padding: 16px;
+  background: #fff;
+  color: #111;
+}
+
+header {
+  margin-bottom: 16px;
+}
+
+h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.tagline {
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.control,
+.status,
+.modes {
+  margin-bottom: 12px;
+}
+
+.modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}

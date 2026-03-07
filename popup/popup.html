@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AFK</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>AFK</h1>
+      <p class="tagline">Hands-free browser control</p>
+    </header>
+
+    <main>
+      <!-- Toggle enable/disable -->
+      <section class="control">
+        <label for="toggle">Enable</label>
+        <input type="checkbox" id="toggle" />
+      </section>
+
+      <!-- Privacy indicator -->
+      <section class="status">
+        <span id="camera-status">Camera off</span>
+      </section>
+
+      <!-- Mode selection placeholder -->
+      <section class="modes">
+        <label><input type="checkbox" id="gestures" /> Gestures</label>
+        <label><input type="checkbox" id="voice" /> Voice</label>
+      </section>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
