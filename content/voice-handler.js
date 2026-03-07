@@ -1,20 +1,20 @@
 // Voice handler
-// Handles: token fetch, ElevenLabs Scribe session, and command filtering.
-// Only committed transcripts with wake-word + known command are emitted.
+// Handles: browser speech recognition and command filtering.
+// Commands fire as soon as they appear in interim transcripts.
 
-import { Scribe, RealtimeEvents } from "@elevenlabs/client";
-
-const TOKEN_SERVER = "http://localhost:5001/scribe-token";
 const WAKE_WORD = "afk";
+const COMMAND_COOLDOWN_MS = 900;
 
-const COMMAND_PATTERNS = [
-  { pattern: /^(?:scroll\s+)?down$/, action: "scroll-down" },
-  { pattern: /^(?:scroll\s+)?up$/, action: "scroll-up" },
-  { pattern: /^(?:next\s+tab|tab\s+next|next)$/, action: "next-tab" },
-  { pattern: /^(?:previous\s+tab|prev(?:ious)?\s+tab|back\s+tab)$/, action: "prev-tab" },
-  { pattern: /^(?:go\s+back|back)$/, action: "go-back" },
-  { pattern: /^(?:go\s+forward|forward)$/, action: "go-forward" },
-  { pattern: /^(?:new\s+tab|open\s+tab)$/, action: "new-tab" },
+const COMMAND_ALIASES = [
+  { action: "page-down", phrases: ["page down"] },
+  { action: "page-up", phrases: ["page up"] },
+  { action: "zoom-in", phrases: ["zoom in", "zoom in please"] },
+  { action: "zoom-out", phrases: ["zoom out", "zoom out please"] },
+  { action: "next-tab", phrases: ["next tab", "tab next"] },
+  { action: "prev-tab", phrases: ["previous tab", "prev tab", "back tab"] },
+  { action: "go-back", phrases: ["go back"] },
+  { action: "go-forward", phrases: ["go forward"] },
+  { action: "new-tab", phrases: ["new tab", "open tab"] },
 ];
 
 function normalizeText(value) {
@@ -25,121 +25,218 @@ function normalizeText(value) {
     .replace(/\s+/g, " ");
 }
 
-function parseCommand(text, { requireWakeWord = true } = {}) {
+function isWordBoundaryChar(char) {
+  return char === " " || char === "";
+}
+
+function findPhraseIndexes(text, phrase) {
+  const indexes = [];
+  let from = 0;
+
+  while (from < text.length) {
+    const index = text.indexOf(phrase, from);
+    if (index < 0) break;
+
+    const before = index === 0 ? "" : text[index - 1];
+    const afterPos = index + phrase.length;
+    const after = afterPos >= text.length ? "" : text[afterPos];
+    if (isWordBoundaryChar(before) && isWordBoundaryChar(after)) {
+      indexes.push(index);
+    }
+
+    from = index + phrase.length;
+  }
+
+  return indexes;
+}
+
+function detectCommands(text, { requireWakeWord = true } = {}) {
   const normalized = normalizeText(text);
-  if (!normalized) return null;
+  if (!normalized) return { normalized, matches: [] };
 
-  let phrase = normalized;
-  if (requireWakeWord) {
-    if (!normalized.startsWith(`${WAKE_WORD} `)) return null;
-    phrase = normalized.slice(WAKE_WORD.length).trim();
-  } else if (normalized.startsWith(`${WAKE_WORD} `)) {
-    // Allow either "afk scroll down" or "scroll down" in non-strict mode.
-    phrase = normalized.slice(WAKE_WORD.length).trim();
+  const matches = [];
+
+  for (const { action, phrases } of COMMAND_ALIASES) {
+    for (const phrase of phrases) {
+      const wakeNeedle = `${WAKE_WORD} ${phrase}`;
+      const wakeIndexes = findPhraseIndexes(normalized, wakeNeedle);
+      for (const index of wakeIndexes) {
+        matches.push({
+          action,
+          index,
+          marker: `${action}@${index}`,
+        });
+      }
+
+      if (requireWakeWord) continue;
+
+      const plainIndexes = findPhraseIndexes(normalized, phrase);
+      for (const index of plainIndexes) {
+        const hasWakePrefix =
+          index >= WAKE_WORD.length + 1 &&
+          normalized.slice(index - (WAKE_WORD.length + 1), index) === `${WAKE_WORD} `;
+        if (hasWakePrefix) continue;
+
+        matches.push({
+          action,
+          index,
+          marker: `${action}@${index}`,
+        });
+      }
+    }
   }
 
-  if (!phrase) return null;
-  for (const { pattern, action } of COMMAND_PATTERNS) {
-    if (pattern.test(phrase)) return action;
+  matches.sort((a, b) => a.index - b.index);
+
+  const unique = [];
+  const seen = new Set();
+  for (const match of matches) {
+    if (seen.has(match.marker)) continue;
+    seen.add(match.marker);
+    unique.push(match);
   }
-  return null;
+
+  return { normalized, matches: unique };
 }
 
-async function getToken() {
-  const response = await fetch(TOKEN_SERVER);
-  if (!response.ok) {
-    throw new Error(`Token request failed (${response.status})`);
-  }
-  const { token } = await response.json();
-  if (!token) throw new Error("Token response missing `token`");
-  return token;
-}
+const SpeechRecognitionCtor =
+  window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 function createVoiceHandler({ onCommand, onStatus } = {}) {
-  let connection = null;
+  let recognition = null;
   let enabled = false;
-  let starting = false;
+  let shouldRestart = false;
   let requireWakeWord = true;
+  let firedMarkers = new Set();
+  let lastPartialNormalized = "";
+  const lastFiredAt = new Map();
 
   const setStatus = (status) => {
     if (typeof onStatus === "function") onStatus(status);
   };
 
-  async function start() {
-    if (!enabled || connection || starting) return;
-    starting = true;
+  function emitMatches(matches, transcript, committed) {
+    let firedCount = 0;
+    const now = Date.now();
+
+    for (const match of matches) {
+      if (firedMarkers.has(match.marker)) continue;
+
+      const previous = lastFiredAt.get(match.action) || 0;
+      if (now - previous < COMMAND_COOLDOWN_MS) continue;
+
+      firedMarkers.add(match.marker);
+      lastFiredAt.set(match.action, now);
+      firedCount += 1;
+
+      if (typeof onCommand === "function") {
+        onCommand(match.action, {
+          transcript,
+          committed,
+          source: "voice",
+        });
+      }
+      setStatus(`heard: ${match.action}`);
+    }
+
+    return firedCount;
+  }
+
+  function processTranscript(text, { committed = false } = {}) {
+    const transcript = String(text || "");
+    const { normalized, matches } = detectCommands(transcript, { requireWakeWord });
+
+    if (!committed && normalized.length < lastPartialNormalized.length) {
+      firedMarkers = new Set();
+    }
+    if (!committed) {
+      lastPartialNormalized = normalized;
+    }
+
+    const firedCount = emitMatches(matches, transcript, committed);
+    if (committed && firedCount === 0) {
+      setStatus("ignored");
+    }
+
+    if (committed) {
+      firedMarkers = new Set();
+      lastPartialNormalized = "";
+    }
+  }
+
+  function start() {
+    if (!enabled || recognition) return;
     setStatus("starting");
 
+    if (!SpeechRecognitionCtor) {
+      setStatus("error: speech api unsupported");
+      return;
+    }
+
     try {
-      const token = await getToken();
-      if (!enabled) {
-        starting = false;
-        return;
-      }
+      recognition = new SpeechRecognitionCtor();
+      recognition.lang = "en-US";
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
-      connection = Scribe.connect({
-        token,
-        modelId: "scribe_v2_realtime",
-        includeTimestamps: false,
-        microphone: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-
-      connection.on(RealtimeEvents.SESSION_STARTED, () => {
+      recognition.onstart = () => {
         setStatus("listening");
-      });
+      };
 
-      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
-        const transcript = String(data?.text || "");
-        const action = parseCommand(transcript, { requireWakeWord });
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const transcript = result?.[0]?.transcript || "";
+          processTranscript(transcript, { committed: Boolean(result?.isFinal) });
+        }
+      };
 
-        if (!action) {
-          setStatus("ignored");
+      recognition.onerror = (event) => {
+        const errorCode = event?.error || "unknown";
+        console.error("[AFK] Voice error:", event);
+        setStatus(`error: ${errorCode}`);
+      };
+
+      recognition.onend = () => {
+        recognition = null;
+        if (enabled && shouldRestart) {
+          setStatus("restarting");
+          setTimeout(() => {
+            if (enabled && shouldRestart) start();
+          }, 250);
           return;
         }
+        setStatus("off");
+      };
 
-        if (typeof onCommand === "function") {
-          onCommand(action, {
-            transcript,
-            committed: true,
-            source: "voice",
-          });
-        }
-        setStatus(`heard: ${action}`);
-      });
-
-      connection.on(RealtimeEvents.ERROR, (error) => {
-        console.error("[AFK] Voice error:", error);
-        setStatus("error");
-      });
-
-      connection.on(RealtimeEvents.OPEN, () => setStatus("connected"));
-      connection.on(RealtimeEvents.CLOSE, () => {
-        connection = null;
-        setStatus(enabled ? "disconnected" : "off");
-      });
+      recognition.start();
     } catch (error) {
       console.error("[AFK] Voice start failed:", error);
       setStatus(`error: ${error?.message || String(error)}`);
-      connection = null;
-    } finally {
-      starting = false;
+      recognition = null;
     }
   }
 
   function stop() {
-    if (connection) {
-      connection.close();
-      connection = null;
+    if (recognition) {
+      const active = recognition;
+      recognition = null;
+      active.onend = null;
+      try {
+        active.stop();
+      } catch (_error) {
+        // Ignore stop race conditions.
+      }
     }
+    firedMarkers = new Set();
+    lastPartialNormalized = "";
     setStatus("off");
   }
 
   function setEnabled(nextEnabled) {
     enabled = Boolean(nextEnabled);
+    shouldRestart = enabled;
     if (enabled) {
       start();
     } else {

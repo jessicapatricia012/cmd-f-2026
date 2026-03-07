@@ -59,16 +59,40 @@ async function executeInTab(tabId, fn, args = []) {
   });
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
 const ACTION_HANDLERS = {
-  "scroll-down": async () => {
+  "page-down": async () => {
     await withActiveTab(async (tab) => {
-      await executeInTab(tab.id, (amount) => window.scrollBy(0, amount), [500]);
+      await executeInTab(tab.id, () => {
+        const amount = Math.max(200, Math.floor(window.innerHeight * 0.9));
+        window.scrollBy({ top: amount, left: 0, behavior: "smooth" });
+      });
     });
   },
-  "scroll-up": async () => {
+  "page-up": async () => {
     await withActiveTab(async (tab) => {
-      await executeInTab(tab.id, (amount) => window.scrollBy(0, amount), [-500]);
+      await executeInTab(tab.id, () => {
+        const amount = Math.max(200, Math.floor(window.innerHeight * 0.9));
+        window.scrollBy({ top: -amount, left: 0, behavior: "smooth" });
+      });
     });
+  },
+  "zoom-in": async () => {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!active?.id) return;
+    const currentZoom = await chrome.tabs.getZoom(active.id);
+    const nextZoom = clamp(currentZoom + 0.1, 0.25, 5);
+    await chrome.tabs.setZoom(active.id, Number(nextZoom.toFixed(2)));
+  },
+  "zoom-out": async () => {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!active?.id) return;
+    const currentZoom = await chrome.tabs.getZoom(active.id);
+    const nextZoom = clamp(currentZoom - 0.1, 0.25, 5);
+    await chrome.tabs.setZoom(active.id, Number(nextZoom.toFixed(2)));
   },
   "next-tab": async () => {
     const [active] = await chrome.tabs.query({ active: true, currentWindow: true });

@@ -113,7 +113,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     applyStateToUI(initial.state);
   }
 
-  const demoGestures = ["Click", "Scroll Down", "Zoom In", "Next Tab", "Go Back", "Drag"];
+  const demoGestures = ["Click", "Page Down", "Zoom In", "Next Tab", "Go Back", "Drag"];
   setInterval(() => {
     if (!stream || Math.random() > 0.35) return;
     elements.gestureLabel.textContent =
