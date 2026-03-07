@@ -1,44 +1,50 @@
 {
   "manifest_version": 3,
-  "name": "AFK",
-  "version": "0.1.0",
-  "description": "Hands-free browser control via hand gesture recognition and voice commands.",
-  "permissions": [
-    "activeTab",
-    "tabs",
-    "scripting",
-    "storage"
-  ],
-  "host_permissions": [
-    "<all_urls>"
-  ],
+  "name": "AFK \u2014 Hands-Free Browser",
+  "version": "1.0.0",
+  "description": "Control Chrome with hand gestures and voice commands via webcam.",
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "AFK"
+  },
   "background": {
     "service_worker": "background/service-worker.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content/content.js"],
-      "css": ["content/content.css"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/gesture-handler.js",
+        "content/voice-handler.js",
+        "content/hud.js",
+        "content/content.js"
+      ],
+      "css": [
+        "content/content.css"
+      ],
+      "run_at": "document_idle"
     }
   ],
-  "action": {
-    "default_popup": "popup/popup.html",
-    "default_icon": {
-      "16": "assets/icons/icon16.png",
-      "48": "assets/icons/icon48.png",
-      "128": "assets/icons/icon128.png"
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Toggle AFK extension"
     }
   },
-  "icons": {
-    "16": "assets/icons/icon16.png",
-    "48": "assets/icons/icon48.png",
-    "128": "assets/icons/icon128.png"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["content/*", "assets/*"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://api.elevenlabs.io https://cdn.jsdelivr.net https://esm.sh http://localhost:5001"
+  }
 }
