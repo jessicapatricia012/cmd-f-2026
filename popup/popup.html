@@ -1,36 +1,102 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AFK</title>
-    <link rel="stylesheet" href="popup.css" />
-  </head>
-  <body>
-    <header>
-      <h1>AFK</h1>
-      <p class="tagline">Hands-free browser control</p>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AFK</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <div class="popup-root">
+
+    <!-- Header -->
+    <header class="popup-header">
+      <div class="popup-logo">
+        <span class="popup-logo__text">AFK</span>
+        <span class="popup-logo__tag">Hands-Free Browser</span>
+      </div>
+      <div class="popup-version">v1.0</div>
     </header>
 
-    <main>
-      <!-- Toggle enable/disable -->
-      <section class="control">
-        <label for="toggle">Enable</label>
-        <input type="checkbox" id="toggle" />
-      </section>
+    <!-- Main toggle -->
+    <section class="popup-toggle-section">
+      <div class="popup-toggle-wrap">
+        <div class="popup-toggle-info">
+          <span class="popup-toggle-label">Extension</span>
+          <span class="popup-toggle-status" id="status-text">Disabled</span>
+        </div>
+        <button
+          class="toggle-btn"
+          id="main-toggle"
+          role="switch"
+          aria-checked="false"
+          aria-label="Enable AFK extension"
+        >
+          <span class="toggle-btn__track">
+            <span class="toggle-btn__thumb"></span>
+            <span class="toggle-btn__glow"></span>
+          </span>
+        </button>
+      </div>
 
-      <!-- Privacy indicator -->
-      <section class="status">
-        <span id="camera-status">Camera off</span>
-      </section>
+      <!-- Camera indicator -->
+      <div class="cam-status" id="cam-status">
+        <span class="cam-status__dot" id="cam-dot"></span>
+        <span class="cam-status__label" id="cam-label">Camera inactive</span>
+      </div>
+    </section>
 
-      <!-- Mode selection placeholder -->
-      <section class="modes">
-        <label><input type="checkbox" id="gestures" /> Gestures</label>
-        <label><input type="checkbox" id="voice" /> Voice</label>
-      </section>
-    </main>
+    <div class="popup-divider"></div>
 
-    <script src="popup.js"></script>
-  </body>
+    <!-- Feature toggles -->
+    <section class="popup-features">
+      <p class="popup-section-title">Features</p>
+
+      <div class="feature-row" id="row-gesture">
+        <div class="feature-row__icon">✋</div>
+        <div class="feature-row__info">
+          <span class="feature-row__name">Gesture Control</span>
+          <span class="feature-row__desc">Pinch, swipe, grab</span>
+        </div>
+        <button class="mini-toggle" id="toggle-gesture" role="switch" aria-checked="true" aria-label="Toggle gesture control">
+          <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+        </button>
+      </div>
+
+      <div class="feature-row" id="row-voice">
+        <div class="feature-row__icon">🎙</div>
+        <div class="feature-row__info">
+          <span class="feature-row__name">Voice Commands</span>
+          <span class="feature-row__desc">"Scroll down", "Next tab"</span>
+        </div>
+        <button class="mini-toggle" id="toggle-voice" role="switch" aria-checked="true" aria-label="Toggle voice commands">
+          <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+        </button>
+      </div>
+    </section>
+
+    <div class="popup-divider"></div>
+
+    <!-- Quick reference -->
+    <section class="popup-gestures">
+      <p class="popup-section-title">Quick Reference</p>
+      <div class="gesture-grid">
+        <div class="gesture-item"><span class="gesture-item__glyph">◎</span><span class="gesture-item__name">Pinch → Click</span></div>
+        <div class="gesture-item"><span class="gesture-item__glyph">↕</span><span class="gesture-item__name">Swipe → Scroll</span></div>
+        <div class="gesture-item"><span class="gesture-item__glyph">✊</span><span class="gesture-item__name">Grab → Switch Tab</span></div>
+        <div class="gesture-item"><span class="gesture-item__glyph">↩</span><span class="gesture-item__name">Swipe L → Back</span></div>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="popup-footer">
+      <span class="popup-footer__hint">Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> to toggle</span>
+    </footer>
+
+  </div>
+  <script src="popup.js"></script>
+</body>
 </html>

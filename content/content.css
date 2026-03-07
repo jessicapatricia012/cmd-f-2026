@@ -1,2 +1,261 @@
 /* Styles for the floating HUD overlay injected into pages */
 
+/* ==========================================================================
+   content.css — AFK Chrome Extension
+   HUD overlay styles + feedback animations
+   ========================================================================== */
+
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+
+/* ── CSS Variables ─────────────────────────────────────────────────────────── */
+#afk-hud-root {
+  --afk-accent:       #00ffe0;
+  --afk-accent-voice: #bf80ff;
+  --afk-bg:           rgba(8, 12, 20, 0.88);
+  --afk-border:       rgba(0, 255, 224, 0.18);
+  --afk-text:         #c8d8e8;
+  --afk-text-dim:     rgba(200, 216, 232, 0.45);
+  --afk-red:          #ff4466;
+  --afk-green:        #00ffe0;
+  --afk-panel-w:      192px;
+  --afk-radius:       12px;
+  --afk-font-mono:    'Share Tech Mono', monospace;
+  --afk-font-ui:      'Rajdhani', sans-serif;
+  --afk-shadow:       0 8px 40px rgba(0, 255, 224, 0.08),
+                      0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+/* ── Root container ────────────────────────────────────────────────────────── */
+#afk-hud-root {
+  all: initial;
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647; /* max z-index */
+  pointer-events: none;
+  font-family: var(--afk-font-ui);
+
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+#afk-hud-root.afk-hud--visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* ── Panel ─────────────────────────────────────────────────────────────────── */
+#afk-hud-panel {
+  width: var(--afk-panel-w);
+  background: var(--afk-bg);
+  border: 1px solid var(--afk-border);
+  border-radius: var(--afk-radius);
+  box-shadow: var(--afk-shadow);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+  overflow: hidden;
+  transition: border-color 0.4s ease;
+}
+
+#afk-hud-panel::before {
+  content: '';
+  display: block;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--afk-accent), transparent);
+  opacity: 0.5;
+}
+
+#afk-hud-panel.afk-hud-panel--enabled {
+  border-color: rgba(0, 255, 224, 0.35);
+  box-shadow: var(--afk-shadow), 0 0 0 1px rgba(0, 255, 224, 0.08);
+}
+
+#afk-hud-panel.afk-hud-panel--enabled::before {
+  opacity: 1;
+  animation: afk-scan-line 3s linear infinite;
+}
+
+/* ── Status bar ────────────────────────────────────────────────────────────── */
+#afk-hud-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+#afk-logo {
+  font-family: var(--afk-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  color: var(--afk-accent);
+  opacity: 0.7;
+  text-transform: uppercase;
+}
+
+/* Camera indicator */
+#afk-cam-indicator,
+#afk-enabled-indicator {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+#afk-cam-dot,
+#afk-enabled-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--afk-text-dim);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+  flex-shrink: 0;
+}
+
+#afk-cam-dot.afk-cam-dot--active {
+  background: var(--afk-red);
+  box-shadow: 0 0 6px var(--afk-red), 0 0 14px rgba(255,68,102,0.5);
+  animation: afk-pulse-red 1.6s ease-in-out infinite;
+}
+
+#afk-enabled-dot.afk-enabled-dot--on {
+  background: var(--afk-green);
+  box-shadow: 0 0 6px var(--afk-green), 0 0 14px rgba(0,255,224,0.4);
+}
+
+#afk-cam-label,
+#afk-enabled-label {
+  font-family: var(--afk-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  color: var(--afk-text-dim);
+  transition: color 0.3s ease;
+  text-transform: uppercase;
+}
+
+#afk-cam-label.afk-cam-label--active {
+  color: var(--afk-red);
+}
+
+/* ── Feedback zone ─────────────────────────────────────────────────────────── */
+#afk-feedback-zone {
+  padding: 14px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 72px;
+  justify-content: center;
+
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#afk-feedback-zone.afk-feedback--active {
+  opacity: 1;
+  transform: translateY(0);
+  animation: afk-feedback-pulse 0.3s ease;
+}
+
+#afk-feedback-zone.afk-feedback--exit {
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+
+#afk-feedback-icon {
+  font-size: 22px;
+  color: var(--afk-accent);
+  line-height: 1;
+  filter: drop-shadow(0 0 8px var(--afk-accent));
+  transition: color 0.2s;
+}
+
+#afk-feedback-label {
+  font-family: var(--afk-font-ui);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--afk-text);
+  text-transform: uppercase;
+  text-align: center;
+}
+
+#afk-feedback-source {
+  font-family: var(--afk-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--afk-text-dim);
+}
+
+#afk-feedback-source[data-source="voice"] {
+  color: var(--afk-accent-voice);
+}
+
+#afk-feedback-zone.afk-feedback--active #afk-feedback-icon {
+  animation: afk-icon-pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ── Ripple container ──────────────────────────────────────────────────────── */
+#afk-ripple-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  width: var(--afk-panel-w);
+  height: 160px;
+  pointer-events: none;
+  z-index: 2147483646;
+  overflow: visible;
+}
+
+.afk-ripple {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: var(--afk-radius);
+  border: 1.5px solid var(--afk-accent);
+  opacity: 0;
+  animation: afk-ripple-out 0.7s ease-out forwards;
+}
+
+.afk-ripple--voice {
+  border-color: var(--afk-accent-voice);
+  animation: afk-ripple-out-voice 0.7s ease-out forwards;
+}
+
+/* ── Keyframes ─────────────────────────────────────────────────────────────── */
+@keyframes afk-pulse-red {
+  0%, 100% { box-shadow: 0 0 6px var(--afk-red), 0 0 14px rgba(255,68,102,0.5); }
+  50%       { box-shadow: 0 0 10px var(--afk-red), 0 0 24px rgba(255,68,102,0.7); }
+}
+
+@keyframes afk-scan-line {
+  0%   { background-position: -200% center; }
+  100% { background-position: 300% center; }
+}
+
+@keyframes afk-feedback-pulse {
+  0%   { transform: scale(0.96) translateY(0); }
+  50%  { transform: scale(1.02) translateY(0); }
+  100% { transform: scale(1)    translateY(0); }
+}
+
+@keyframes afk-icon-pop {
+  0%   { transform: scale(0.7);  opacity: 0; }
+  70%  { transform: scale(1.15); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
+}
+
+@keyframes afk-ripple-out {
+  0%   { opacity: 0.6; transform: scale(1);    }
+  100% { opacity: 0;   transform: scale(1.25); }
+}
+
+@keyframes afk-ripple-out-voice {
+  0%   { opacity: 0.5; transform: scale(1);    }
+  100% { opacity: 0;   transform: scale(1.3);  }
+}
