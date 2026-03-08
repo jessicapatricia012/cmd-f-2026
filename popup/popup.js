@@ -178,6 +178,23 @@ function initAccordions() {
 
 initAccordions();
 
+const STORAGE_KEY = "afk_user_config";
+
+function saveToLocalStorage(state) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+function loadFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   initAccordions();
   const elements = {
@@ -227,6 +244,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
 
   const applyStateToUI = (state) => {
+    saveToLocalStorage(state);
     const enabled = Boolean(state.enabled);
     const gesturesEnabled = Boolean(state.gesturesEnabled);
     const faceAttentionEnabled = state.faceAttentionEnabled !== false;
@@ -270,6 +288,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     const debugEnabled = state.debugEnabled !== false;
     setMiniToggle(elements.toggleDebug, debugEnabled);
   };
+
+  const cached = loadFromLocalStorage();
+  if (cached) applyStateToUI(cached);
 
   const updateState = async (partial) => {
     try {
