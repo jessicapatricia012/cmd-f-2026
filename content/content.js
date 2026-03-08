@@ -18,6 +18,7 @@ const INITIAL_STATE = {
   gesturesEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
+  customKeywords: {},
 };
 
 let currentState = { ...INITIAL_STATE };
@@ -88,7 +89,7 @@ function debugLog(message, type = "info") {
   debugList.prepend(item);
 }
 
-function getCommandLabel(action) {
+function getCommandLabel(action, meta = {}) {
   const labels = {
     "page-down": "Page Down",
     "page-up": "Page Up",
@@ -109,11 +110,13 @@ function getCommandLabel(action) {
     "page-refresh": "Refresh",
     "fullscreen-enter": "Fullscreen",
     "fullscreen-exit": "Exit Fullscreen",
+    "press-key": meta?.keyLabel ? `Press ${meta.keyLabel}` : "Press Key",
+    "click-target": "Click Target",
   };
   return labels[action] || action;
 }
 
-function showCommandToast(action, source) {
+function showCommandToast(action, source, meta = {}) {
   if (!commandToastEl) {
     commandToastEl = document.createElement("div");
     commandToastEl.id = "afk-command-toast";
@@ -145,7 +148,7 @@ function showCommandToast(action, source) {
   const nextKey = `${sourceLabel}:${action}`;
   const renderToast = () => {
     if (!commandToastEl) return;
-    commandToastEl.textContent = `${sourceLabel}: ${getCommandLabel(action)}`;
+    commandToastEl.textContent = `${sourceLabel}: ${getCommandLabel(action, meta)}`;
     commandToastEl.style.opacity = "1";
     commandToastEl.style.transform = "translateX(-50%) translateY(0)";
     commandToastTimer = setTimeout(() => {
@@ -197,7 +200,7 @@ async function emitCommand(source, action, meta = {}) {
 
   if (result?.ok && !result?.skipped) {
     hud?.showFeedback?.({ action, source });
-    showCommandToast(action, source);
+    showCommandToast(action, source, meta);
     debugLog(`command ok <- ${action}`, "ok");
     return;
   }
@@ -237,6 +240,7 @@ function updateRuntimeModules() {
 
   voiceEngine?.setConfig?.({
     requireWakeWord: Boolean(currentState.requireWakeWord),
+    customKeywords: currentState.customKeywords || {},
   });
 
   hud?.setState?.({
