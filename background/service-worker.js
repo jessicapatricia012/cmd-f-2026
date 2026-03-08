@@ -1,7 +1,10 @@
 // Background service worker
-// Handles: offscreen document lifecycle, gesture message relay, zoom, tab switching
+// Handles: offscreen document lifecycle, gesture message relay, zoom, tab switching, state management
 
-const STORAGE_KEY = "afkState";
+// ---------------------------------------------------------------------------
+// State management
+// ---------------------------------------------------------------------------
+
 const DEFAULT_STATE = {
   enabled: false,
   gesturesEnabled: true,
@@ -15,6 +18,15 @@ const attentionAutoPausedByTab = new Map();
 let lastAttentionActionAt = 0;
 let cachedState = { ...DEFAULT_STATE };
 const tabVideoPresence = new Map();
+
+let afkState = { ...DEFAULT_STATE };
+
+// Load persisted state on service-worker startup
+chrome.storage.local.get("afkState", (result) => {
+  if (result.afkState && typeof result.afkState === "object") {
+    afkState = { ...DEFAULT_STATE, ...result.afkState };
+  }
+});
 
 async function getState() {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
@@ -32,7 +44,11 @@ async function setState(partial) {
 
 getState().catch(() => {});
 
-async function broadcastState(state) {
+async function saveState() {
+  return chrome.storage.local.set({ afkState });
+}
+
+async function broadcastState() {
   const tabs = await chrome.tabs.query({});
 
   await Promise.all(
@@ -932,6 +948,52 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return result;
   },
+  "voice-search": async (targetTabId, payload = {}) => {
+    const query = String(payload.searchQuery || "").trim();
+    if (!query) return { ok: false, error: "No search query provided" };
+    let status = { ok: false, error: "No search input found" };
+    await withActiveTab(async (tab) => {
+      status = await executeInTabWithResult(tab.id, (q) => {
+        const selectors = [
+          "input[type='search']", "input[name='q']", "input[name='query']",
+          "input[name='search']", "input[name='s']",
+          "input[placeholder*='search' i]", "input[aria-label*='search' i]",
+          "input[title*='search' i]", "textarea[name='q']", "input[type='text']",
+        ];
+        let input = null;
+        const active = document.activeElement;
+        if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+            active.type !== "hidden" && active.type !== "checkbox" && active.type !== "radio")
+          input = active;
+        if (!input) {
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el instanceof HTMLElement) {
+              const st = window.getComputedStyle(el);
+              if (st.display !== "none" && st.visibility !== "hidden") { input = el; break; }
+            }
+          }
+        }
+        if (!input) return { ok: false, error: "No search input found" };
+        input.focus();
+        const proto = input instanceof HTMLTextAreaElement
+          ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        nativeSetter ? nativeSetter.call(input, q) : (input.value = q);
+        input.value = q;
+        input.dispatchEvent(new Event("input",  { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        const ei = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        input.dispatchEvent(new KeyboardEvent("keydown",  ei));
+        input.dispatchEvent(new KeyboardEvent("keypress", ei));
+        input.dispatchEvent(new KeyboardEvent("keyup",    ei));
+        const form = input.closest("form");
+        if (form) { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {} }
+        return { ok: true, matched: q };
+      }, [query]);
+    }, targetTabId);
+    return status;
+  },
 };
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -1119,7 +1181,98 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Message routing
 // ---------------------------------------------------------------------------
 
+// Browser-level actions handled entirely in the service worker
+const BROWSER_LEVEL_COMMANDS = new Set([
+  "zoom-in", "zoom-out", "next-tab", "prev-tab", "new-tab",
+  "go-back", "go-forward", "page-refresh",
+]);
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Return current state to popup or content script
+  if (msg.type === "AFK_GET_STATE") {
+    sendResponse({ ok: true, state: afkState });
+    return;
+  }
+
+  // Merge partial state update, persist, and broadcast
+  if (msg.type === "AFK_SET_STATE") {
+    afkState = { ...afkState, ...(msg.payload || {}) };
+    saveState()
+      .then(() => broadcastState())
+      .then(() => sendResponse({ ok: true, state: afkState }))
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  // Execute a voice or gesture command
+  if (msg.type === "AFK_COMMAND") {
+    const { action, source, ...meta } = msg.payload || {};
+    const tabId = sender.tab?.id;
+
+    if (action === "zoom-in" || action === "zoom-out") {
+      if (!tabId) { sendResponse({ ok: false, error: "no tab" }); return; }
+      chrome.tabs.getZoom(tabId, (current) => {
+        const delta = action === "zoom-in" ? 0.1 : -0.1;
+        const next = Math.min(5, Math.max(0.25, Math.round((current + delta) * 10) / 10));
+        chrome.tabs.setZoom(tabId, next, () => sendResponse({ ok: true }));
+      });
+      return true;
+    }
+
+    if (action === "next-tab" || action === "prev-tab") {
+      chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        const sorted = tabs.slice().sort((a, b) => a.index - b.index);
+        const activeIdx = sorted.findIndex((t) => t.active);
+        if (activeIdx === -1) { sendResponse({ ok: false }); return; }
+        const step = action === "next-tab" ? 1 : -1;
+        const nextIdx = (activeIdx + step + sorted.length) % sorted.length;
+        chrome.tabs.update(sorted[nextIdx].id, { active: true }, () => sendResponse({ ok: true }));
+      });
+      return true;
+    }
+
+    if (action === "new-tab") {
+      chrome.tabs.create({ active: true }, () => sendResponse({ ok: true }));
+      return true;
+    }
+
+    if (action === "go-back") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.goBack(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (action === "go-forward") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.goForward(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (action === "page-refresh") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.reload(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    // Relay page-level commands back to the active tab content script
+    const targetTabId = tabId ?? null;
+    if (!targetTabId) { sendResponse({ ok: false, error: "no tab" }); return; }
+    chrome.tabs.sendMessage(
+      targetTabId,
+      { type: "afk:execute", action, ...meta },
+      (response) => {
+        sendResponse(response || { ok: true });
+      },
+    );
+    return true;
+  }
+
   // Popup toggled ON — camera permission was just granted by the popup
   if (msg.type === "start") {
     startOffscreen()
@@ -1174,6 +1327,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
         if (id != null) chrome.tabs.remove(id).catch(() => {});
+      });
+      return;
+    }
+    if (msg.event === "gesture:newtab") {
+      chrome.tabs.create({ active: true }).catch(() => {});
+      return;
+    }
+    if (msg.event === "gesture:refreshtab") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const id = tabs[0]?.id;
+        if (id != null) chrome.tabs.reload(id).catch(() => {});
       });
       return;
     }

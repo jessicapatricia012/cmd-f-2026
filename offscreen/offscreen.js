@@ -3,7 +3,7 @@
 //
 // Emits gesture results to the service worker via chrome.runtime.sendMessage.
 // The service worker relays them to the active tab's content script.
-'use strict';
+"use strict";
 
 // ---------------------------------------------------------------------------
 // MediaPipe hand landmark indices
@@ -11,10 +11,22 @@
 const LM = {
   WRIST: 0,
   THUMB_TIP: 4,
-  INDEX_MCP: 5, INDEX_PIP: 6, INDEX_DIP: 7, INDEX_TIP: 8,
-  MIDDLE_MCP: 9, MIDDLE_PIP: 10, MIDDLE_DIP: 11, MIDDLE_TIP: 12,
-  RING_MCP: 13, RING_PIP: 14, RING_DIP: 15, RING_TIP: 16,
-  PINKY_MCP: 17, PINKY_PIP: 18, PINKY_DIP: 19, PINKY_TIP: 20,
+  INDEX_MCP: 5,
+  INDEX_PIP: 6,
+  INDEX_DIP: 7,
+  INDEX_TIP: 8,
+  MIDDLE_MCP: 9,
+  MIDDLE_PIP: 10,
+  MIDDLE_DIP: 11,
+  MIDDLE_TIP: 12,
+  RING_MCP: 13,
+  RING_PIP: 14,
+  RING_DIP: 15,
+  RING_TIP: 16,
+  PINKY_MCP: 17,
+  PINKY_PIP: 18,
+  PINKY_DIP: 19,
+  PINKY_TIP: 20,
 };
 
 // ---------------------------------------------------------------------------
@@ -51,6 +63,36 @@ const CFG = {
   SCROLL_SMOOTHING: 0.22,
   SCROLL_MAX_STEP_PX: 90,
   SCROLL_DEADZONE_PX: 1.5,
+  TAB_PINCH_THRESHOLD: 0.08, // index↔middle closeness for tab-switch pinch
+  TAB_HOLD_SWITCH_MS: 420, // hold pinch before tab-switch can fire
+  TAB_HOLD_MIN_NORM: 0.06, // horizontal pinch movement needed (~6% width)
+  TAB_HOLD_COOLDOWN_MS: 900, // avoid repeat switches while held
+  TAB_SWITCH_BLOCK_AFTER_SCROLL_MS: 800, // don't enter tab-switch right after scroll
+  NEW_TAB_FIST_HOLD_MS: 600,
+  NEW_TAB_LOSS_GRACE_MS: 220,
+  NEW_TAB_COOLDOWN_MS: 1800,
+  CLAP_DISTANCE_THRESHOLD: 0.18, // wrist-to-wrist distance to count as clap
+  CLAP_RELEASE_DISTANCE_THRESHOLD: 0.28, // rearm clap after hands separate
+  CLAP_PRIME_DISTANCE_THRESHOLD: 0.3, // hands must first be clearly apart
+  CLAP_TRANSITION_MAX_MS: 1300, // clap must happen shortly after priming
+  CLAP_COOLDOWN_MS: 1000,
+  FINGER_CLUSTER_THRESHOLD: 0.21, // index↔middle closeness for 3-finger pinch
+  FINGER_CLUSTER_RELEASE_THRESHOLD: 0.26, // hysteresis: must open wider to end pinch
+  THUMB_PINCH_THRESHOLD: 0.24, // thumb↔index and thumb↔middle closeness
+  THUMB_PINCH_RELEASE_THRESHOLD: 0.29, // hysteresis: must open wider to end pinch
+  CLICK_MAX_MS: 700, // max pinch duration for a click
+  CLICK_COOLDOWN_MS: 500, // minimum gap between click events
+  DOUBLE_PINCH_GAP_MS: 500, // max gap between pinches for tab-switch
+  DRAG_MIN_NORM: 0.012, // ~20 px at 1600-wide screen, in normalised units
+  TAB_SWITCH_ARM_NORM: 0.03, // second pinch must move horizontally before tab mode starts
+  TAB_SWITCH_MIN_NORM: 0.08, // require explicit horizontal drag (~8% screen width)
+  REFRESH_THUMBS_UP_HOLD_MS: 500, // hold thumbs-up to refresh
+  REFRESH_COOLDOWN_MS: 1600,
+  SCROLL_VELOCITY_THRESHOLD: 0.35, // normalised units / second
+  SCROLL_SCALE: 320, // px per event per unit velocity
+  SCROLL_SMOOTHING: 0.22, // low-pass filter (0-1), lower = smoother
+  SCROLL_MAX_STEP_PX: 90, // clamp per event to avoid jumps
+  SCROLL_DEADZONE_PX: 1.5, // ignore tiny jitter
   SCROLL_HISTORY_LEN: 8,
   SWIPE_VELOCITY_THRESHOLD: 0.005,
   SWIPE_WINDOW_MS: 450,
@@ -73,7 +115,8 @@ const CFG = {
 // ---------------------------------------------------------------------------
 class GestureHandler {
   constructor() {
-    this._video   = document.getElementById('video');
+    this._hands = null;
+    this._video = document.getElementById("video");
     this._loopTimer = null;
     this._running = false;
     this._consecutiveSendFailures = 0;
@@ -89,17 +132,33 @@ class GestureHandler {
     this._attentionPaused = true;
 
     this._s = {
-      pinching: false, pinchStartMs: 0, pinchStartNorm: null,
-      lastPinchEndMs: 0, dragging: false,
-      clickFiredThisPinch: false, lastClickMs: 0,
+      pinching: false,
+      pinchStartMs: 0,
+      pinchStartNorm: null,
+      lastPinchEndMs: 0,
+      dragging: false,
+      clickFiredThisPinch: false,
+      lastClickMs: 0,
       tabSwitchPrimed: false,
-      tabSwitchFired: false, lastTabSwitchMs: 0,
-      tabSwitching: false, tabSwitchOriginNorm: null,
-      clapArmed: false, lastClapMs: 0, clapPrimedMs: 0,
-      palmOpen: false, palmHistory: [], swipeCooldown: false,
+      tabSwitchFired: false,
+      lastTabSwitchMs: 0,
+      tabSwitching: false,
+      tabSwitchOriginNorm: null,
+      newTabArmed: true,
+      lastNewTabMs: 0,
+      clapArmed: false,
+      lastClapMs: 0,
+      clapPrimedMs: 0,
+      palmOpen: false,
+      palmHistory: [],
+      refreshPoseStartMs: 0,
+      lastRefreshMs: 0,
+      swipeCooldown: false,
       zoomCooldown: false,
-      scrollMode: false, scrollHistory: [],
-      scrollVx: 0, scrollVy: 0,
+      scrollMode: false,
+      scrollHistory: [],
+      scrollVx: 0,
+      scrollVy: 0,
       lastZoomMs: 0,
       lastScrollMs: 0,
       palmOpenSinceMs: null,
@@ -108,15 +167,18 @@ class GestureHandler {
       attentionCandidateSinceMs: 0,
       attentionState: null,
       lastFaceSeenMs: 0,
+      fistLastSeenMs: 0,
     };
   }
 
   async init() {
     console.log('[AFK] offscreen init…');
+    this._setupAttention();
+    console.log("[AFK] offscreen init…");
     this._setupHands();
     this._setupAttention();
     await this._startCamera();
-    console.log('[AFK] offscreen ready');
+    console.log("[AFK] offscreen ready");
   }
 
   setAttentionPaused(paused) {
@@ -215,7 +277,12 @@ class GestureHandler {
 
   async _startCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user', frameRate: { ideal: 30 } },
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: "user",
+        frameRate: { ideal: 30 },
+      },
       audio: false,
     });
     this._video.srcObject = stream;
@@ -270,28 +337,33 @@ class GestureHandler {
     }
 
     const allHands = results.multiHandLandmarks;
-    const lm  = allHands[0];
+    const lm = allHands[0];
     const now = Date.now();
 
     this._detectClap(allHands, results.multiHandedness, now);
 
-    const indexTip  = lm[LM.INDEX_TIP],  indexPip  = lm[LM.INDEX_PIP];
-    const middleTip = lm[LM.MIDDLE_TIP], middlePip = lm[LM.MIDDLE_PIP];
-    const ringTip   = lm[LM.RING_TIP],   ringPip   = lm[LM.RING_PIP];
-    const pinkyTip  = lm[LM.PINKY_TIP],  pinkyPip  = lm[LM.PINKY_PIP];
-    const thumbTip  = lm[LM.THUMB_TIP];
-    const wrist     = lm[LM.WRIST];
+    const indexTip = lm[LM.INDEX_TIP],
+      indexPip = lm[LM.INDEX_PIP];
+    const middleTip = lm[LM.MIDDLE_TIP],
+      middlePip = lm[LM.MIDDLE_PIP];
+    const ringTip = lm[LM.RING_TIP],
+      ringPip = lm[LM.RING_PIP];
+    const pinkyTip = lm[LM.PINKY_TIP],
+      pinkyPip = lm[LM.PINKY_PIP];
+    const thumbTip = lm[LM.THUMB_TIP];
+    const indexMcp = lm[LM.INDEX_MCP];
+    const wrist = lm[LM.WRIST];
 
-    const indexUp  = indexTip.y  < indexPip.y;
+    const indexUp = indexTip.y < indexPip.y;
     const middleUp = middleTip.y < middlePip.y;
-    const ringUp   = ringTip.y   < ringPip.y;
-    const pinkyUp  = pinkyTip.y  < pinkyPip.y;
+    const ringUp = ringTip.y < ringPip.y;
+    const pinkyUp = pinkyTip.y < pinkyPip.y;
 
     const palmOpen = indexUp && middleUp && ringUp && pinkyUp;
-    const isFist   = !indexUp && !middleUp && !ringUp && !pinkyUp;
+    const isFist = !indexUp && !middleUp && !ringUp && !pinkyUp;
 
     const distIndexMiddle = this._dist(indexTip, middleTip);
-    const distThumbIndex  = this._dist(thumbTip, indexTip);
+    const distThumbIndex = this._dist(thumbTip, indexTip);
     const distThumbMiddle = this._dist(thumbTip, middleTip);
     const isScrollPosture = indexUp && middleUp;
     const clusterThreshold = this._s.pinching
@@ -303,23 +375,43 @@ class GestureHandler {
 
     const isThreeFingerPinch =
       distIndexMiddle < clusterThreshold &&
-      distThumbIndex  < thumbThreshold &&
+      distThumbIndex < thumbThreshold &&
       distThumbMiddle < thumbThreshold;
 
-    const isTabPinch = distIndexMiddle < CFG.TAB_PINCH_THRESHOLD && !palmOpen && !isScrollPosture;
+    const isTabPose = !ringUp && !pinkyUp;
+    const isTabPinch =
+      distIndexMiddle < CFG.TAB_PINCH_THRESHOLD &&
+      isTabPose &&
+      !isScrollPosture;
     const isPinching = CFG.ENABLE_TAB_SWITCH ? isTabPinch : isThreeFingerPinch;
 
     this._emit('gesture:cursor', { normX: 1 - indexTip.x, normY: indexTip.y });
+    // Cursor: index fingertip, mirrored (normX=0 left of screen)
+    this._emit("gesture:cursor", { normX: 1 - indexTip.x, normY: indexTip.y });
 
     if (CFG.ENABLE_CLICK || CFG.ENABLE_DRAG || CFG.ENABLE_TAB_SWITCH) {
       this._detectPinch(isPinching, indexTip, middleTip, now);
     }
-    if (CFG.ENABLE_SCROLL) {
-      this._detectScroll(indexUp, middleUp, isPinching, indexTip, middleTip, now);
+    const isThumbsUp =
+      thumbTip.y < indexMcp.y && !indexUp && !middleUp && !ringUp && !pinkyUp;
+    const refreshActive = this._detectRefresh(isThumbsUp, isPinching, now);
+    if (CFG.ENABLE_SCROLL && !refreshActive) {
+      this._detectScroll(
+        indexUp,
+        middleUp,
+        isPinching,
+        indexTip,
+        middleTip,
+        now,
+      );
     }
     if (CFG.ENABLE_SWIPE) {
       this._detectSwipe(palmOpen, wrist, now);
     }
+    const curledCount =
+      Number(!indexUp) + Number(!middleUp) + Number(!ringUp) + Number(!pinkyUp);
+    const isFistLike = curledCount >= 3 && !palmOpen && !isPinching;
+    this._detectNewTab(isFistLike, now);
 
     this._s.palmOpen = palmOpen;
   }
@@ -336,10 +428,13 @@ class GestureHandler {
     }
     s.scrollMode = false;
     s.scrollHistory = [];
-    s.palmHistory   = [];
+    s.palmHistory = [];
+    s.refreshPoseStartMs = 0;
     s.clapArmed = false;
     s.clapPrimedMs = 0;
-    this._emit('gesture:none', {});
+    s.fistSinceMs = null;
+    s.newTabArmed = true;
+    this._emit("gesture:none", {});
   }
 
   // -------------------------------------------------------------------------
@@ -351,36 +446,40 @@ class GestureHandler {
 
     const mid = {
       normX: 1 - (indexTip.x + middleTip.x) / 2,
-      normY:     (indexTip.y + middleTip.y) / 2,
+      normY: (indexTip.y + middleTip.y) / 2,
     };
 
     if (isPinching && !s.pinching) {
-      if (s.scrollMode || now - s.lastScrollMs < CFG.TAB_SWITCH_BLOCK_AFTER_SCROLL_MS) return;
-      s.pinching      = true;
-      s.pinchStartMs  = now;
+      if (
+        s.scrollMode ||
+        now - s.lastScrollMs < CFG.TAB_SWITCH_BLOCK_AFTER_SCROLL_MS
+      )
+        return;
+      s.pinching = true;
+      s.pinchStartMs = now;
       s.pinchStartNorm = { ...mid };
-      s.dragging      = false;
+      s.dragging = false;
       s.clickFiredThisPinch = false;
       s.tabSwitchPrimed = false;
       s.tabSwitchFired = false;
 
       if (CFG.ENABLE_CLICK && now - s.lastClickMs >= CFG.CLICK_COOLDOWN_MS) {
-        this._emit('gesture:click', { ...s.pinchStartNorm });
+        this._emit("gesture:click", { ...s.pinchStartNorm });
         s.clickFiredThisPinch = true;
         s.lastClickMs = now;
       }
 
       if (CFG.ENABLE_TAB_SWITCH) {
-        s.tabSwitching        = true;
+        s.tabSwitching = true;
         s.tabSwitchOriginNorm = { ...mid };
-        this._emit('gesture:tabswitch:start', {});
+        this._emit("gesture:tabswitch:start", {});
       }
     }
 
     if (isPinching && s.pinching) {
       if (CFG.ENABLE_TAB_SWITCH && s.tabSwitching) {
         const normDx = mid.normX - s.tabSwitchOriginNorm.normX;
-        this._emit('gesture:tabswitch:drag', { normDx });
+        this._emit("gesture:tabswitch:drag", { normDx });
 
         if (
           !s.tabSwitchFired &&
@@ -388,20 +487,25 @@ class GestureHandler {
           now - s.pinchStartMs >= CFG.TAB_HOLD_SWITCH_MS &&
           Math.abs(normDx) >= CFG.TAB_HOLD_MIN_NORM
         ) {
-          this._emit('gesture:tabswitch:end', { normDx });
+          this._emit("gesture:tabswitch:end", { normDx });
           s.tabSwitchFired = true;
           s.lastTabSwitchMs = now;
         }
       } else if (CFG.ENABLE_DRAG) {
-        const dnx   = mid.normX - s.pinchStartNorm.normX;
-        const dny   = mid.normY - s.pinchStartNorm.normY;
+        const dnx = mid.normX - s.pinchStartNorm.normX;
+        const dny = mid.normY - s.pinchStartNorm.normY;
         const moved = Math.hypot(dnx, dny);
 
         if (!s.dragging && moved >= CFG.DRAG_MIN_NORM) {
           s.dragging = true;
-          this._emit('gesture:dragstart', { ...s.pinchStartNorm });
+          this._emit("gesture:dragstart", { ...s.pinchStartNorm });
         } else if (s.dragging) {
-          this._emit('gesture:drag', { normX: mid.normX, normY: mid.normY, normDx: dnx, normDy: dny });
+          this._emit("gesture:drag", {
+            normX: mid.normX,
+            normY: mid.normY,
+            normDx: dnx,
+            normDy: dny,
+          });
         }
       }
     }
@@ -414,14 +518,14 @@ class GestureHandler {
         s.tabSwitching = false;
         s.tabSwitchFired = false;
       } else if (CFG.ENABLE_DRAG && s.dragging) {
-        this._emit('gesture:dragend', { normX: mid.normX, normY: mid.normY });
+        this._emit("gesture:dragend", { normX: mid.normX, normY: mid.normY });
       } else if (
         CFG.ENABLE_CLICK &&
         !s.clickFiredThisPinch &&
         duration <= CFG.CLICK_MAX_MS &&
         now - s.lastClickMs >= CFG.CLICK_COOLDOWN_MS
       ) {
-        this._emit('gesture:click', { ...s.pinchStartNorm });
+        this._emit("gesture:click", { ...s.pinchStartNorm });
         s.lastClickMs = now;
       }
 
@@ -436,7 +540,7 @@ class GestureHandler {
     const s = this._s;
 
     if (!indexUp || !middleUp || isPinching || s.tabSwitching) {
-      s.scrollMode    = false;
+      s.scrollMode = false;
       s.scrollHistory = [];
       s.scrollVx = 0;
       s.scrollVy = 0;
@@ -444,20 +548,29 @@ class GestureHandler {
     }
 
     s.scrollMode = true;
-    s.scrollHistory.push({ x: (indexTip.x + middleTip.x) / 2, y: (indexTip.y + middleTip.y) / 2, t: now });
-    if (s.scrollHistory.length > CFG.SCROLL_HISTORY_LEN) s.scrollHistory.shift();
+    s.scrollHistory.push({
+      x: (indexTip.x + middleTip.x) / 2,
+      y: (indexTip.y + middleTip.y) / 2,
+      t: now,
+    });
+    if (s.scrollHistory.length > CFG.SCROLL_HISTORY_LEN)
+      s.scrollHistory.shift();
     if (s.scrollHistory.length < 4) return;
 
     const old = s.scrollHistory[0];
     const cur = s.scrollHistory[s.scrollHistory.length - 1];
-    const dt  = cur.t - old.t;
+    const dt = cur.t - old.t;
     if (dt <= 0) return;
 
     const dtSec = dt / 1000;
     const vx = (cur.x - old.x) / dtSec;
     const vy = (cur.y - old.y) / dtSec;
 
-    if (Math.abs(vx) < CFG.SCROLL_VELOCITY_THRESHOLD && Math.abs(vy) < CFG.SCROLL_VELOCITY_THRESHOLD) return;
+    if (
+      Math.abs(vx) < CFG.SCROLL_VELOCITY_THRESHOLD &&
+      Math.abs(vy) < CFG.SCROLL_VELOCITY_THRESHOLD
+    )
+      return;
 
     s.scrollVx += (vx - s.scrollVx) * CFG.SCROLL_SMOOTHING;
     s.scrollVy += (vy - s.scrollVy) * CFG.SCROLL_SMOOTHING;
@@ -465,30 +578,40 @@ class GestureHandler {
     let dx = -s.scrollVx * CFG.SCROLL_SCALE;
     let dy = -s.scrollVy * CFG.SCROLL_SCALE;
 
-    dx = Math.max(-CFG.SCROLL_MAX_STEP_PX, Math.min(CFG.SCROLL_MAX_STEP_PX, dx));
-    dy = Math.max(-CFG.SCROLL_MAX_STEP_PX, Math.min(CFG.SCROLL_MAX_STEP_PX, dy));
+    dx = Math.max(
+      -CFG.SCROLL_MAX_STEP_PX,
+      Math.min(CFG.SCROLL_MAX_STEP_PX, dx),
+    );
+    dy = Math.max(
+      -CFG.SCROLL_MAX_STEP_PX,
+      Math.min(CFG.SCROLL_MAX_STEP_PX, dy),
+    );
 
     if (Math.abs(dx) < CFG.SCROLL_DEADZONE_PX) dx = 0;
     if (Math.abs(dy) < CFG.SCROLL_DEADZONE_PX) dy = 0;
     if (dx === 0 && dy === 0) return;
 
-    this._emit('gesture:scroll', { dx, dy });
+    this._emit("gesture:scroll", { dx, dy });
     s.lastScrollMs = now;
   }
 
   _detectSwipe(palmOpen, wrist, now) {
     const s = this._s;
-    if (!palmOpen) { s.palmHistory = []; return; }
+    if (!palmOpen) {
+      s.palmHistory = [];
+      return;
+    }
     if (s.swipeCooldown) return;
 
     s.palmHistory.push({ x: wrist.x, y: wrist.y, t: now });
     const cutoff = now - CFG.SWIPE_WINDOW_MS;
-    while (s.palmHistory.length && s.palmHistory[0].t < cutoff) s.palmHistory.shift();
+    while (s.palmHistory.length && s.palmHistory[0].t < cutoff)
+      s.palmHistory.shift();
     if (s.palmHistory.length < 5) return;
 
     const first = s.palmHistory[0];
-    const last  = s.palmHistory[s.palmHistory.length - 1];
-    const dt    = last.t - first.t;
+    const last = s.palmHistory[s.palmHistory.length - 1];
+    const dt = last.t - first.t;
     if (dt <= 0) return;
 
     const dx = last.x - first.x;
@@ -498,10 +621,40 @@ class GestureHandler {
     if (Math.abs(vx) < CFG.SWIPE_VELOCITY_THRESHOLD) return;
     if (Math.abs(dx) < Math.abs(dy) * CFG.SWIPE_DIRECTIONALITY) return;
 
-    this._emit('gesture:navigate', { direction: vx > 0 ? 'back' : 'forward' });
+    this._emit("gesture:navigate", { direction: vx > 0 ? "back" : "forward" });
     s.swipeCooldown = true;
-    s.palmHistory   = [];
-    setTimeout(() => { s.swipeCooldown = false; }, CFG.SWIPE_COOLDOWN_MS);
+    s.palmHistory = [];
+    setTimeout(() => {
+      s.swipeCooldown = false;
+    }, CFG.SWIPE_COOLDOWN_MS);
+  }
+
+  _detectRefresh(isThumbsUp, isPinching, now) {
+    const s = this._s;
+
+    if (!isThumbsUp || isPinching || s.tabSwitching || s.scrollMode) {
+      s.refreshPoseStartMs = 0;
+      return false;
+    }
+
+    // Prevent overlap with new-tab gesture transitions.
+    if (now - s.lastNewTabMs < 1000) {
+      s.refreshPoseStartMs = 0;
+      return false;
+    }
+
+    if (!s.refreshPoseStartMs) {
+      s.refreshPoseStartMs = now;
+      return true;
+    }
+
+    if (now - s.refreshPoseStartMs < CFG.REFRESH_THUMBS_UP_HOLD_MS) return true;
+    if (now - s.lastRefreshMs < CFG.REFRESH_COOLDOWN_MS) return true;
+
+    this._emit("gesture:refreshtab", {});
+    s.lastRefreshMs = now;
+    s.refreshPoseStartMs = 0;
+    return true;
   }
 
   _detectClap(allHands, handedness, now) {
@@ -537,7 +690,7 @@ class GestureHandler {
     if (d >= CFG.CLAP_DISTANCE_THRESHOLD) return;
     if (now - s.lastClapMs < CFG.CLAP_COOLDOWN_MS) return;
 
-    this._emit('gesture:closetab', {});
+    this._emit("gesture:closetab", {});
     s.lastClapMs = now;
     s.clapArmed = false;
     s.clapPrimedMs = 0;
@@ -665,11 +818,38 @@ class GestureHandler {
     );
   }
 
+  _detectNewTab(isFistLike, now) {
+    const s = this._s;
+
+    if (isFistLike && !s.scrollMode && !s.tabSwitching) {
+      if (s.fistSinceMs == null) s.fistSinceMs = now;
+      s.fistLastSeenMs = now;
+    } else if (
+      !s.fistSinceMs ||
+      now - s.fistLastSeenMs > CFG.NEW_TAB_LOSS_GRACE_MS
+    ) {
+      s.fistSinceMs = null;
+      s.fistLastSeenMs = 0;
+      s.newTabArmed = true;
+      return;
+    }
+
+    if (!s.newTabArmed) return;
+    if (now - s.fistSinceMs < CFG.NEW_TAB_FIST_HOLD_MS) return;
+    if (now - s.lastNewTabMs < CFG.NEW_TAB_COOLDOWN_MS) return;
+
+    this._emit("gesture:newtab", {});
+    s.lastNewTabMs = now;
+    s.newTabArmed = false;
+  }
+
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
-  _dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  _dist(a, b) {
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
 
   _emitAttentionStatusThrottled(state, detail = {}, minIntervalMs = 900) {
     const key = String(state || '');
@@ -681,7 +861,9 @@ class GestureHandler {
   }
 
   _emit(type, detail) {
-    chrome.runtime.sendMessage({ type: 'gesture', event: type, detail }).catch(() => {});
+    chrome.runtime
+      .sendMessage({ type: "gesture", event: type, detail })
+      .catch(() => {});
   }
 }
 
