@@ -424,6 +424,19 @@ function detectCommands(
   return { normalized, matches: unique };
 }
 
+// The ElevenLabs bundle has a race condition where the internal audio port
+// forwards microphone data before the WebSocket finishes connecting. That throw
+// is unguarded inside the bundle, so we intercept it here and suppress the
+// uncaught error. The consecutive-error fallback in the CLOSE handler will
+// switch to browser speech after repeated failures.
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (event) => {
+    if (String(event?.error?.message || "").includes("WebSocket is not connected")) {
+      event.preventDefault();
+    }
+  });
+}
+
 let scribeModulePromise = null;
 
 function getScribeModule() {
@@ -498,6 +511,8 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let partialStart = -1;
   let lastPartialLength = 0;
   let partialSpan = null;
+  let searchPauseTimer = null;
+  let lastSearchQuery = null;
 
   function deleteLastWord(el) {
     if (!el) return;
@@ -697,6 +712,43 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       return;
     }
 
+    const rawNorm = normalizeText(transcript);
+    const vsRe = [
+      /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
+      /\blook\s+(?:up|for)\s+(.+?)\s*$/,
+      /\bfind\s+(.+?)\s*$/,
+    ];
+    let detectedQuery = null;
+    for (const re of vsRe) {
+      const m = re.exec(rawNorm);
+      if (m && m[1].trim()) { detectedQuery = m[1].trim(); break; }
+    }
+    if (detectedQuery) {
+      const fireSearch = (q, isCommitted) => {
+        if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+        lastSearchQuery = null;
+        if (typeof onCommand === "function")
+          onCommand("voice-search", { transcript, committed: isCommitted, source: "voice", searchQuery: q });
+        setStatus(`search: ${q}`);
+        firedMarkers = new Set(); lastPartialNormalized = "";
+      };
+      if (committed) { fireSearch(detectedQuery, true); return; }
+      const queryGrew = !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
+      lastSearchQuery = detectedQuery;
+      if (queryGrew) {
+        if (searchPauseTimer) clearTimeout(searchPauseTimer);
+        searchPauseTimer = setTimeout(() => {
+          searchPauseTimer = null;
+          const q = lastSearchQuery;
+          if (q) fireSearch(q, false);
+        }, 500);
+      }
+      return;
+    } else {
+      if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+      lastSearchQuery = null;
+    }
+
     const { normalized, matches } = detectCommands(transcript, {
       requireWakeWord,
       commandAliases,
@@ -885,6 +937,12 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       connection.on(RealtimeEvents.CLOSE, () => {
         connection = null;
         if (enabled && shouldRestart) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 3) {
+            forceBrowserSpeech = true;
+            console.warn("[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech");
+            setStatus("fallback: browser speech");
+          }
           scheduleRestart();
           return;
         }
