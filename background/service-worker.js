@@ -1177,7 +1177,60 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return true;
     }
 
-    // Relay page-level commands back to the active tab content script
+    if (action === "voice-search") {
+      const query = String(meta.searchQuery || "").trim();
+      if (!query) { sendResponse({ ok: false, error: "no query" }); return; }
+      (async () => {
+        // First try to fill a search input on the current page.
+        let filled = false;
+        if (tabId) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (q) => {
+                const selectors = [
+                  "input[type='search']", "input[name='q']", "input[name='query']",
+                  "input[name='search']", "input[name='s']",
+                  "input[placeholder*='search' i]", "input[aria-label*='search' i]",
+                  "input[title*='search' i]", "textarea[name='q']",
+                ];
+                let input = null;
+                for (const sel of selectors) {
+                  const el = document.querySelector(sel);
+                  if (el instanceof HTMLElement) {
+                    const st = window.getComputedStyle(el);
+                    if (st.display !== "none" && st.visibility !== "hidden") { input = el; break; }
+                  }
+                }
+                if (!input) return false;
+                input.focus();
+                const proto = input instanceof HTMLTextAreaElement
+                  ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+                nativeSetter ? nativeSetter.call(input, q) : (input.value = q);
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+                const ei = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+                input.dispatchEvent(new KeyboardEvent("keydown", ei));
+                input.dispatchEvent(new KeyboardEvent("keypress", ei));
+                input.dispatchEvent(new KeyboardEvent("keyup", ei));
+                const form = input.closest("form");
+                if (form) { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {} }
+                return true;
+              },
+              args: [query],
+            });
+            filled = results?.[0]?.result === true;
+          } catch (_) {}
+        }
+        // No search box found — open Google in a new tab.
+        if (!filled) {
+          await chrome.tabs.create({ url: `https://www.google.com/search?q=${encodeURIComponent(query)}`, active: true });
+        }
+        sendResponse({ ok: true, matched: query });
+      })();
+      return true;
+    }
     const targetTabId = tabId ?? null;
     if (!targetTabId) { sendResponse({ ok: false, error: "no tab" }); return; }
     chrome.tabs.sendMessage(
@@ -1280,23 +1333,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       chrome.tabs.setZoom(tabId, next);
     });
-  }
-
-  // Proxy scribe token fetch — content scripts are subject to Private Network
-  // Access restrictions, but the service worker (chrome-extension:// origin) is not.
-  if (msg.type === "GET_SCRIBE_TOKEN") {
-    (async () => {
-      try {
-        const response = await fetch("http://localhost:5001/scribe-token");
-        if (!response.ok) throw new Error(`token fetch failed (${response.status})`);
-        const { token } = await response.json();
-        if (!token) throw new Error("token missing");
-        sendResponse({ ok: true, token });
-      } catch (err) {
-        sendResponse({ ok: false, error: err?.message || String(err) });
-      }
-    })();
-    return true;
   }
 
   // Switch to the adjacent tab (request from content script)
