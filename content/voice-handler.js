@@ -208,7 +208,7 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   // Detect "afk click clickable <number>" pattern — e.g. "afk click clickable 3" or "afk click clickable three"
   // Using "clickable" as a disambiguator prevents conflicts with elements named after numbers.
   const WORD_TO_NUM = {
-    one: 1, two: 2, three: 3, four: 4, five: 5,
+    one: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5,
     six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
     eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
     sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
@@ -239,10 +239,11 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   let clickTextMatch = clickTextPattern.exec(normalized);
   while (clickTextMatch) {
     const labelText = clickTextMatch[1].trim();
-    // Skip generic click phrases and the "clickable N" pattern (handled by click-number above)
+    // Skip generic click phrases and anything starting with "clickable" (handled by click-number)
     const genericClickPhrases = new Set(["that", "this", ""]);
-    const isClickableNumber = /^clickable\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(labelText);
-    if (labelText && !genericClickPhrases.has(labelText) && !isClickableNumber) {
+    const isClickableNumber = /^clickable\s+(\d+|one|two|to|too|three|four|for|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(labelText);
+    const startsWithClickable = /^clickable\b/.test(labelText);
+    if (labelText && !genericClickPhrases.has(labelText) && !isClickableNumber && !startsWithClickable) {
       matches.push({
         action: "click-text",
         index: clickTextMatch.index,
