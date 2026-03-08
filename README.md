@@ -55,8 +55,7 @@ AFK is a Chrome extension that lets you control your browser entirely through ha
 | Voice output | ElevenLabs TTS | Natural-sounding spoken feedback and readback |
 | Extension | Chrome MV3 | Content script + offscreen document |
 | Gesture engine | Custom JS | Debounce, hold-timer, cooldown windows |
-| HUD overlay | React + Shadow DOM | Isolated UI injected into every page |
-| Bundler | Vite | Multi-entry build for all extension contexts |
+| HUD overlay | Shadow DOM | Isolated UI injected into every page |
 
 Key architectural decisions:
 - **Offscreen document** for camera access — MV3 disallows `getUserMedia` in content scripts
