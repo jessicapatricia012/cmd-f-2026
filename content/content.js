@@ -92,6 +92,8 @@ function getCommandLabel(action) {
   const labels = {
     "page-down": "Page Down",
     "page-up": "Page Up",
+    "go-home": "Home",
+    "go-end": "End",
     "zoom-in": "Zoom In",
     "zoom-out": "Zoom Out",
     "next-tab": "Next Tab",
@@ -99,6 +101,14 @@ function getCommandLabel(action) {
     "go-back": "Go Back",
     "go-forward": "Go Forward",
     "new-tab": "New Tab",
+    "video-play": "Video Play",
+    "video-pause": "Video Pause",
+    "video-next": "Video Next",
+    "video-mute": "Video Mute",
+    "video-unmute": "Video Unmute",
+    "page-refresh": "Refresh",
+    "fullscreen-enter": "Fullscreen",
+    "fullscreen-exit": "Exit Fullscreen",
   };
   return labels[action] || action;
 }
