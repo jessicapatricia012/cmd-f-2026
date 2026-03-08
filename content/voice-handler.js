@@ -6,6 +6,7 @@ const WAKE_WORD = "afk";
 const COMMAND_COOLDOWN_MS = 900;
 const RESTART_BASE_DELAY_MS = 700;
 const RESTART_MAX_DELAY_MS = 4000;
+const TOKEN_SERVER = "http://localhost:5001/scribe-token";
 const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
@@ -47,7 +48,6 @@ const DEFAULT_COMMAND_ALIASES = [
     action: "click-target",
     phrases: ["click", "click that", "click this", "select this"],
   },
-  { action: "enter-key", phrases: ["enter", "press enter", "hit enter", "submit"] },
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -431,55 +431,10 @@ function detectCommands(
 // switch to browser speech after repeated failures.
 if (typeof window !== "undefined") {
   window.addEventListener("error", (event) => {
-    if (
-      String(event?.error?.message || "").includes("WebSocket is not connected")
-    ) {
+    if (String(event?.error?.message || "").includes("WebSocket is not connected")) {
       event.preventDefault();
     }
   });
-}
-
-// Patch AudioWorklet.prototype.addModule so that blob:/data: URLs created by the
-// ElevenLabs bundle are redirected to our self-hosted worklet file on pages with a
-// strict script-src CSP that blocks blob: and data: schemes.
-//
-// The identification strategy: when a blob/data URL fails, fetch the blob text and
-// check whether it registers "scribeAudioProcessor". If so, substitute our hosted
-// file (loaded from chrome-extension:// which is always CSP-exempt for extensions).
-if (typeof AudioWorklet !== "undefined") {
-  const _origAddModule = AudioWorklet.prototype.addModule;
-  const SCRIBE_URL = chrome.runtime.getURL("content/vendor/scribe-audio-processor.js");
-
-  AudioWorklet.prototype.addModule = async function patchedAddModule(moduleUrl, options) {
-    // Only intercept blob:/data: URLs — extension and https URLs pass through as-is.
-    if (typeof moduleUrl !== "string" ||
-        (!moduleUrl.startsWith("blob:") && !moduleUrl.startsWith("data:"))) {
-      return _origAddModule.call(this, moduleUrl, options);
-    }
-
-    try {
-      return await _origAddModule.call(this, moduleUrl, options);
-    } catch (err) {
-      // Original call failed (likely CSP). Identify the worklet by reading the source.
-      try {
-        let source;
-        if (moduleUrl.startsWith("blob:")) {
-          source = await fetch(moduleUrl).then((r) => r.text());
-        } else {
-          // data:application/javascript;base64,<b64>
-          const b64 = moduleUrl.replace(/^data:[^,]+,/, "");
-          source = atob(b64);
-        }
-
-        if (source.includes('"scribeAudioProcessor"') || source.includes("'scribeAudioProcessor'")) {
-          return await _origAddModule.call(this, SCRIBE_URL, options);
-        }
-      } catch {
-        // Could not read source — rethrow original error
-      }
-      throw err;
-    }
-  };
 }
 
 let scribeModulePromise = null;
@@ -504,32 +459,13 @@ function isYouTubeHost() {
 }
 
 async function getToken() {
-  const response = await chrome.runtime.sendMessage({ type: "GET_SCRIBE_TOKEN" });
-  if (!response?.ok) throw new Error(response?.error || "token fetch failed");
-  return response.token;
-}
-
-function isEditableInput(el) {
-  if (!el) return false;
-  if (el.tagName === "TEXTAREA") return true;
-  if (el.isContentEditable) return true;
-  if (el.tagName === "INPUT") {
-    const type = (el.type || "text").toLowerCase();
-    const excluded = new Set([
-      "submit",
-      "button",
-      "checkbox",
-      "radio",
-      "file",
-      "range",
-      "color",
-      "hidden",
-      "image",
-      "reset",
-    ]);
-    return !excluded.has(type);
+  const response = await fetch(TOKEN_SERVER);
+  if (!response.ok) {
+    throw new Error(`token fetch failed (${response.status})`);
   }
-  return false;
+  const { token } = await response.json();
+  if (!token) throw new Error("token missing");
+  return token;
 }
 
 function isEditableInput(el) {
@@ -777,43 +713,35 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     }
 
     const rawNorm = normalizeText(transcript);
-    const vsRe = [
-      /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
-      /\blook\s+(?:up|for)\s+(.+?)\s*$/,
-      /\bfind\s+(.+?)\s*$/,
-    ];
+    // Respect requireWakeWord: require "afk" prefix when wake word mode is on.
+    // e.g. "AFK search for dogs" / "AFK find weather" / "AFK look up recipes"
+    const vsRe = requireWakeWord
+      ? [
+          /\bafk\s+search(?:\s+for)?\s+(.+?)\s*$/,
+          /\bafk\s+look\s+(?:up|for)\s+(.+?)\s*$/,
+          /\bafk\s+find\s+(.+?)\s*$/,
+        ]
+      : [
+          /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
+          /\blook\s+(?:up|for)\s+(.+?)\s*$/,
+          /\bfind\s+(.+?)\s*$/,
+        ];
     let detectedQuery = null;
     for (const re of vsRe) {
       const m = re.exec(rawNorm);
-      if (m && m[1].trim()) {
-        detectedQuery = m[1].trim();
-        break;
-      }
+      if (m && m[1].trim()) { detectedQuery = m[1].trim(); break; }
     }
     if (detectedQuery) {
       const fireSearch = (q, isCommitted) => {
-        if (searchPauseTimer) {
-          clearTimeout(searchPauseTimer);
-          searchPauseTimer = null;
-        }
+        if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
         lastSearchQuery = null;
         if (typeof onCommand === "function")
-          onCommand("voice-search", {
-            transcript,
-            committed: isCommitted,
-            source: "voice",
-            searchQuery: q,
-          });
+          onCommand("voice-search", { transcript, committed: isCommitted, source: "voice", searchQuery: q });
         setStatus(`search: ${q}`);
-        firedMarkers = new Set();
-        lastPartialNormalized = "";
+        firedMarkers = new Set(); lastPartialNormalized = "";
       };
-      if (committed) {
-        fireSearch(detectedQuery, true);
-        return;
-      }
-      const queryGrew =
-        !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
+      if (committed) { fireSearch(detectedQuery, true); return; }
+      const queryGrew = !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
       lastSearchQuery = detectedQuery;
       if (queryGrew) {
         if (searchPauseTimer) clearTimeout(searchPauseTimer);
@@ -825,10 +753,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       }
       return;
     } else {
-      if (searchPauseTimer) {
-        clearTimeout(searchPauseTimer);
-        searchPauseTimer = null;
-      }
+      if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
       lastSearchQuery = null;
     }
 

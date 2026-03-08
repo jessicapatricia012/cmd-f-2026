@@ -1052,21 +1052,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   attentionAutoPausedByTab.delete(tabId);
 });
 
-async function updateAttentionEnabled() {
-  const faceEnabled = afkState.enabled && afkState.faceAttentionEnabled !== false;
-  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const hasVideo = activeTab?.id ? (tabVideoPresence.get(activeTab.id) || false) : false;
-  try {
-    await chrome.runtime.sendMessage({ type: "AFK_SET_ATTENTION", enabled: faceEnabled && hasVideo });
-  } catch {}
-}
-
-chrome.tabs.onActivated.addListener(() => updateAttentionEnabled().catch(() => {}));
-chrome.tabs.onRemoved.addListener((tabId) => {
-  tabVideoPresence.delete(tabId);
-  attentionAutoPausedByTab.delete(tabId);
-});
-
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -1308,32 +1293,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
 
-    if (typeof msg.event === "string" && msg.event.startsWith("attention:")) {
-      latestAttentionEvent = {
-        event: msg.event,
-        detail: msg.detail || {},
-        at: Date.now(),
-      };
-      broadcastAttentionEvent(msg).catch(() => {});
-      if (msg.event === "attention:look-away" || msg.event === "attention:look-at") {
-        handleAttentionPlayback(msg.event).catch((err) => {
-          console.warn("[AFK] attention playback handling failed:", err);
-          broadcastAttentionEvent({
-            type: "gesture",
-            event: "attention:action",
-            detail: {
-              eventName: msg.event,
-              ok: false,
-              error: err?.message || String(err),
-            },
-          }).catch(() => {});
-        });
-      }
-      return;
-    }
-
-    if (!afkState.enabled || !afkState.gesturesEnabled) return;
-
     if (msg.event === "gesture:closetab") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
@@ -1374,23 +1333,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       );
       chrome.tabs.setZoom(tabId, next);
     });
-  }
-
-  // Proxy scribe token fetch — content scripts are subject to Private Network
-  // Access restrictions, but the service worker (chrome-extension:// origin) is not.
-  if (msg.type === "GET_SCRIBE_TOKEN") {
-    (async () => {
-      try {
-        const response = await fetch("http://localhost:5001/scribe-token");
-        if (!response.ok) throw new Error(`token fetch failed (${response.status})`);
-        const { token } = await response.json();
-        if (!token) throw new Error("token missing");
-        sendResponse({ ok: true, token });
-      } catch (err) {
-        sendResponse({ ok: false, error: err?.message || String(err) });
-      }
-    })();
-    return true;
   }
 
   // Switch to the adjacent tab (request from content script)
