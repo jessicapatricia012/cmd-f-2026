@@ -4,10 +4,15 @@
 
 const WAKE_WORD = "afk";
 const COMMAND_COOLDOWN_MS = 900;
+const RESTART_BASE_DELAY_MS = 700;
+const RESTART_MAX_DELAY_MS = 4000;
+const TOKEN_SERVER = "http://localhost:5001/scribe-token";
+const SpeechRecognitionCtor =
+  window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down"] },
-  { action: "page-up", phrases: ["page up"] },
+  { action: "page-down", phrases: ["page down", "scroll down"] },
+  { action: "page-up", phrases: ["page up", "scroll up"] },
   { action: "zoom-in", phrases: ["zoom in", "zoom in please"] },
   { action: "zoom-out", phrases: ["zoom out", "zoom out please"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -64,7 +69,6 @@ function detectCommands(text, { requireWakeWord = true } = {}) {
         matches.push({
           action,
           index,
-          marker: `${action}@${index}`,
         });
       }
 
@@ -80,13 +84,21 @@ function detectCommands(text, { requireWakeWord = true } = {}) {
         matches.push({
           action,
           index,
-          marker: `${action}@${index}`,
         });
       }
     }
   }
 
   matches.sort((a, b) => a.index - b.index);
+
+  // Build stable markers by per-action order in the utterance.
+  // This avoids duplicate firing when partial transcript edits shift indexes.
+  const actionOrdinal = new Map();
+  for (const match of matches) {
+    const nextOrdinal = (actionOrdinal.get(match.action) || 0) + 1;
+    actionOrdinal.set(match.action, nextOrdinal);
+    match.marker = `${match.action}#${nextOrdinal}`;
+  }
 
   const unique = [];
   const seen = new Set();
@@ -99,17 +111,40 @@ function detectCommands(text, { requireWakeWord = true } = {}) {
   return { normalized, matches: unique };
 }
 
-const SpeechRecognitionCtor =
-  window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let scribeModulePromise = null;
 
-function createVoiceHandler({ onCommand, onStatus } = {}) {
+function getScribeModule() {
+  if (!scribeModulePromise) {
+    // Load vendored module from extension package (MV3-safe, no remote code import).
+    scribeModulePromise = import(chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs"));
+  }
+  return scribeModulePromise;
+}
+
+async function getToken() {
+  const response = await fetch(TOKEN_SERVER);
+  if (!response.ok) {
+    throw new Error(`token fetch failed (${response.status})`);
+  }
+  const { token } = await response.json();
+  if (!token) throw new Error("token missing");
+  return token;
+}
+
+function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
+  let connection = null;
   let recognition = null;
+  let starting = false;
   let enabled = false;
   let shouldRestart = false;
+  let forceBrowserSpeech = false;
   let requireWakeWord = true;
   let firedMarkers = new Set();
   let lastPartialNormalized = "";
   const lastFiredAt = new Map();
+  let restartTimer = null;
+  let consecutiveErrors = 0;
+  let lastErrorCode = "";
 
   const setStatus = (status) => {
     if (typeof onStatus === "function") onStatus(status);
@@ -146,9 +181,6 @@ function createVoiceHandler({ onCommand, onStatus } = {}) {
     const transcript = String(text || "");
     const { normalized, matches } = detectCommands(transcript, { requireWakeWord });
 
-    if (!committed && normalized.length < lastPartialNormalized.length) {
-      firedMarkers = new Set();
-    }
     if (!committed) {
       lastPartialNormalized = normalized;
     }
@@ -164,61 +196,173 @@ function createVoiceHandler({ onCommand, onStatus } = {}) {
     }
   }
 
-  function start() {
-    if (!enabled || recognition) return;
-    setStatus("starting");
+  function scheduleRestart() {
+    if (!enabled || !shouldRestart) return;
+    const delay = Math.min(RESTART_MAX_DELAY_MS, RESTART_BASE_DELAY_MS + consecutiveErrors * 400);
+    setStatus(`restarting in ${delay}ms`);
 
+    if (restartTimer) clearTimeout(restartTimer);
+    restartTimer = setTimeout(() => {
+      restartTimer = null;
+      if (enabled && shouldRestart) start();
+    }, delay);
+  }
+
+  function startBrowserSpeech() {
     if (!SpeechRecognitionCtor) {
-      setStatus("error: speech api unsupported");
+      setStatus("error: no speech engine available");
       return;
     }
+    if (recognition) return;
+
+    recognition = new SpeechRecognitionCtor();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => {
+      consecutiveErrors = 0;
+      lastErrorCode = "";
+      setStatus("listening (browser)");
+    };
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        const transcript = String(result?.[0]?.transcript || "");
+        if (typeof onTranscript === "function" && transcript) {
+          onTranscript(transcript, { committed: Boolean(result?.isFinal) });
+        }
+        processTranscript(transcript, { committed: Boolean(result?.isFinal) });
+      }
+    };
+
+    recognition.onerror = (event) => {
+      const errorCode = String(event?.error || "unknown");
+      lastErrorCode = errorCode;
+      consecutiveErrors += 1;
+      setStatus(`retry: ${errorCode}`);
+    };
+
+    recognition.onend = () => {
+      recognition = null;
+      if (enabled && shouldRestart) {
+        scheduleRestart();
+        return;
+      }
+      setStatus("off");
+    };
 
     try {
-      recognition = new SpeechRecognitionCtor();
-      recognition.lang = "en-US";
-      recognition.continuous = true;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 1;
+      recognition.start();
+    } catch (error) {
+      lastErrorCode = String(error?.message || "unknown");
+      consecutiveErrors += 1;
+      setStatus(`error: ${lastErrorCode}`);
+      recognition = null;
+      if (enabled && shouldRestart) scheduleRestart();
+    }
+  }
 
-      recognition.onstart = () => {
+  async function start() {
+    if (!enabled || connection || recognition || starting) return;
+    starting = true;
+    setStatus("starting");
+
+    try {
+      if (forceBrowserSpeech) {
+        startBrowserSpeech();
+        return;
+      }
+
+      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([getScribeModule(), getToken()]);
+      if (!enabled) {
+        starting = false;
+        return;
+      }
+
+      connection = Scribe.connect({
+        token,
+        modelId: "scribe_v2_realtime",
+        includeTimestamps: false,
+        microphone: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      connection.on(RealtimeEvents.OPEN, () => {
+        setStatus("connected");
+      });
+
+      connection.on(RealtimeEvents.SESSION_STARTED, () => {
+        consecutiveErrors = 0;
+        lastErrorCode = "";
         setStatus("listening");
-      };
+      });
 
-      recognition.onresult = (event) => {
-        for (let i = event.resultIndex; i < event.results.length; i += 1) {
-          const result = event.results[i];
-          const transcript = result?.[0]?.transcript || "";
-          processTranscript(transcript, { committed: Boolean(result?.isFinal) });
+      connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
+        const transcript = String(data?.text || "");
+        if (typeof onTranscript === "function" && transcript) {
+          onTranscript(transcript, { committed: false });
         }
-      };
+        processTranscript(transcript, { committed: false });
+      });
 
-      recognition.onerror = (event) => {
-        const errorCode = event?.error || "unknown";
-        console.error("[AFK] Voice error:", event);
+      connection.on(RealtimeEvents.COMMITTED_TRANSCRIPT, (data) => {
+        const transcript = String(data?.text || "");
+        if (typeof onTranscript === "function" && transcript) {
+          onTranscript(transcript, { committed: true });
+        }
+        processTranscript(transcript, { committed: true });
+      });
+
+      connection.on(RealtimeEvents.ERROR, (error) => {
+        const errorCode = String(error?.code || error?.type || error?.message || "unknown");
+        lastErrorCode = errorCode;
+        consecutiveErrors += 1;
+        console.error("[AFK] Voice error:", error);
         setStatus(`error: ${errorCode}`);
-      };
+      });
 
-      recognition.onend = () => {
-        recognition = null;
+      connection.on(RealtimeEvents.CLOSE, () => {
+        connection = null;
         if (enabled && shouldRestart) {
-          setStatus("restarting");
-          setTimeout(() => {
-            if (enabled && shouldRestart) start();
-          }, 250);
+          scheduleRestart();
           return;
         }
         setStatus("off");
-      };
-
-      recognition.start();
+      });
     } catch (error) {
-      console.error("[AFK] Voice start failed:", error);
-      setStatus(`error: ${error?.message || String(error)}`);
-      recognition = null;
+      lastErrorCode = String(error?.message || "unknown");
+      consecutiveErrors += 1;
+      forceBrowserSpeech = true;
+      console.warn("[AFK] ElevenLabs unavailable, falling back to browser speech:", error);
+      setStatus("fallback: browser speech");
+      connection = null;
+      if (enabled && shouldRestart) startBrowserSpeech();
+    } finally {
+      starting = false;
     }
   }
 
   function stop() {
+    if (restartTimer) {
+      clearTimeout(restartTimer);
+      restartTimer = null;
+    }
+
+    if (connection) {
+      const active = connection;
+      connection = null;
+      try {
+        active.close();
+      } catch (_error) {
+        // Ignore stop race conditions.
+      }
+    }
     if (recognition) {
       const active = recognition;
       recognition = null;
@@ -231,6 +375,7 @@ function createVoiceHandler({ onCommand, onStatus } = {}) {
     }
     firedMarkers = new Set();
     lastPartialNormalized = "";
+    consecutiveErrors = 0;
     setStatus("off");
   }
 

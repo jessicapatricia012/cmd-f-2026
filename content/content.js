@@ -25,6 +25,18 @@ let gestureEngine = null;
 let voiceEngine = null;
 let hud = null;
 let debugList = null;
+let commandToastEl = null;
+let commandToastTimer = null;
+let commandToastSwapTimer = null;
+let lastCommandToastKey = "";
+
+function hideCommandToast({ flyUp = false } = {}) {
+  if (!commandToastEl) return;
+  commandToastEl.style.opacity = "0";
+  commandToastEl.style.transform = flyUp
+    ? "translateX(-50%) translateY(-12px)"
+    : "translateX(-50%) translateY(10px)";
+}
 
 function initDebugPanel() {
   if (document.getElementById("afk-debug-panel")) {
@@ -76,6 +88,71 @@ function debugLog(message, type = "info") {
   debugList.prepend(item);
 }
 
+function getCommandLabel(action) {
+  const labels = {
+    "page-down": "Page Down",
+    "page-up": "Page Up",
+    "zoom-in": "Zoom In",
+    "zoom-out": "Zoom Out",
+    "next-tab": "Next Tab",
+    "prev-tab": "Previous Tab",
+    "go-back": "Go Back",
+    "go-forward": "Go Forward",
+    "new-tab": "New Tab",
+  };
+  return labels[action] || action;
+}
+
+function showCommandToast(action, source) {
+  if (!commandToastEl) {
+    commandToastEl = document.createElement("div");
+    commandToastEl.id = "afk-command-toast";
+    commandToastEl.style.cssText = [
+      "position:fixed",
+      "left:50%",
+      "bottom:90px",
+      "transform:translateX(-50%) translateY(10px)",
+      "z-index:2147483647",
+      "padding:10px 14px",
+      "border-radius:999px",
+      "background:rgba(15,23,42,.94)",
+      "color:#e2e8f0",
+      "border:1px solid #334155",
+      "font:600 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial",
+      "letter-spacing:.02em",
+      "opacity:0",
+      "transition:opacity .16s ease, transform .16s ease",
+      "pointer-events:none",
+      "box-shadow:0 10px 25px rgba(0,0,0,.35)",
+    ].join(";");
+    document.documentElement.appendChild(commandToastEl);
+  }
+
+  if (commandToastTimer) clearTimeout(commandToastTimer);
+  if (commandToastSwapTimer) clearTimeout(commandToastSwapTimer);
+
+  const sourceLabel = source === SOURCE.VOICE ? "Voice" : "Gesture";
+  const nextKey = `${sourceLabel}:${action}`;
+  const renderToast = () => {
+    if (!commandToastEl) return;
+    commandToastEl.textContent = `${sourceLabel}: ${getCommandLabel(action)}`;
+    commandToastEl.style.opacity = "1";
+    commandToastEl.style.transform = "translateX(-50%) translateY(0)";
+    commandToastTimer = setTimeout(() => {
+      hideCommandToast();
+    }, 1200);
+  };
+
+  if (commandToastEl.style.opacity === "1") {
+    hideCommandToast({ flyUp: true });
+    commandToastSwapTimer = setTimeout(renderToast, 110);
+  } else {
+    renderToast();
+  }
+
+  lastCommandToastKey = nextKey;
+}
+
 function mergeState(nextState) {
   currentState = { ...INITIAL_STATE, ...(nextState || {}) };
 }
@@ -84,6 +161,11 @@ function isAllowedByMode(source) {
   if (source === SOURCE.GESTURE) return currentState.gesturesEnabled;
   if (source === SOURCE.VOICE) return currentState.voiceEnabled;
   return false;
+}
+
+function isVoiceCaptureAllowedInThisTab() {
+  // Avoid multiple tabs competing for SpeechRecognition.
+  return document.visibilityState === "visible" && document.hasFocus();
 }
 
 async function sendRuntimeMessage(message) {
@@ -105,6 +187,7 @@ async function emitCommand(source, action, meta = {}) {
 
   if (result?.ok && !result?.skipped) {
     hud?.showFeedback?.({ action, source });
+    showCommandToast(action, source);
     debugLog(`command ok <- ${action}`, "ok");
     return;
   }
@@ -122,7 +205,8 @@ async function emitCommand(source, action, meta = {}) {
 function updateRuntimeModules() {
   const enabled = Boolean(currentState.enabled);
   const gesturesEnabled = enabled && Boolean(currentState.gesturesEnabled);
-  const voiceEnabled = enabled && Boolean(currentState.voiceEnabled);
+  const voiceEnabled =
+    enabled && Boolean(currentState.voiceEnabled) && isVoiceCaptureAllowedInThisTab();
   const cameraActive = gesturesEnabled;
 
   if (gestureEngine?.setEnabled) {
@@ -148,7 +232,7 @@ function updateRuntimeModules() {
   hud?.setState?.({
     enabled,
     gesturesEnabled,
-    voiceEnabled,
+    voiceEnabled: enabled && Boolean(currentState.voiceEnabled),
     cameraActive,
   });
 }
@@ -185,6 +269,7 @@ async function initVoiceEngine() {
   const mod = await safeImport("content/voice-handler.js");
   const factory = resolveFactory(mod, ["createVoiceHandler", "default"]);
   if (!factory) return;
+  let lastTranscriptLog = "";
 
   voiceEngine = factory({
     onCommand: (action, meta) => {
@@ -192,6 +277,15 @@ async function initVoiceEngine() {
       if (transcript) debugLog(`voice heard: "${transcript}"`);
       debugLog(`voice parsed: ${action}`);
       emitCommand(SOURCE.VOICE, action, meta);
+    },
+    onTranscript: (text, meta) => {
+      const cleaned = String(text || "").trim();
+      if (!cleaned) return;
+      const prefix = meta?.committed ? "voice final" : "voice partial";
+      const line = `${prefix}: "${cleaned}"`;
+      if (line === lastTranscriptLog) return;
+      lastTranscriptLog = line;
+      debugLog(line);
     },
     onStatus: (status) => {
       hud?.setVoiceStatus?.(status);
@@ -227,6 +321,25 @@ function initBackgroundStateListener() {
   });
 }
 
+function initTabActivityListeners() {
+  document.addEventListener("visibilitychange", () => {
+    debugLog(
+      `tab visibility: ${document.visibilityState}, focus=${document.hasFocus() ? "yes" : "no"}`
+    );
+    updateRuntimeModules();
+  });
+
+  window.addEventListener("focus", () => {
+    debugLog("tab focus: yes");
+    updateRuntimeModules();
+  });
+
+  window.addEventListener("blur", () => {
+    debugLog("tab focus: no");
+    updateRuntimeModules();
+  });
+}
+
 async function syncInitialState() {
   const response = await sendRuntimeMessage({ type: CHANNEL.GET_STATE });
   if (response?.ok && response.state) {
@@ -240,6 +353,7 @@ async function bootstrap() {
   await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
   initLocalEventBridge();
   initBackgroundStateListener();
+  initTabActivityListeners();
   await syncInitialState();
   debugLog(`state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`);
   updateRuntimeModules();
