@@ -393,7 +393,8 @@ function setDebugUIVisible(visible) {
   if (eyeAttentionBadgeEl)
     eyeAttentionBadgeEl.style.display = faceVisible ? "" : "none";
   if (eyeGazeDotEl) eyeGazeDotEl.style.display = faceVisible ? "" : "none";
-  if (handCursorDotEl) handCursorDotEl.style.display = visible ? "" : "none";
+  // Keep only the primary blue cursor overlay to avoid duplicate cursor visuals.
+  if (handCursorDotEl) handCursorDotEl.style.display = "none";
 }
 
 function getCommandLabel(action, meta = {}) {
@@ -1116,7 +1117,6 @@ function initBackgroundStateListener() {
 
       // -- Hand gesture events --
       if (eventName === "gesture:cursor") {
-        updateHandCursorDot(detail);
         const now = Date.now();
         if (now - lastCursorStatusMs > 400) {
           lastCursorStatusMs = now;
@@ -1331,10 +1331,16 @@ async function bootstrap() {
 (function () {
   "use strict";
 
+  if (window.__AFK_PAGE_CURSOR_LAYER_INIT__) return;
+  window.__AFK_PAGE_CURSOR_LAYER_INIT__ = true;
+
+  document.querySelectorAll("#afk-primary-cursor, #afk-primary-cursor-label").forEach((el) => el.remove());
+
   // ---------------------------------------------------------------------------
   // Finger cursor overlay
   // ---------------------------------------------------------------------------
   const cursor = document.createElement("div");
+  cursor.id = "afk-primary-cursor";
   Object.assign(cursor.style, {
     position: "fixed",
     width: "22px",
@@ -1352,6 +1358,7 @@ async function bootstrap() {
   document.body.appendChild(cursor);
 
   const label = document.createElement("div");
+  label.id = "afk-primary-cursor-label";
   Object.assign(label.style, {
     position: "fixed",
     padding: "3px 8px",
@@ -1368,7 +1375,7 @@ async function bootstrap() {
   });
   document.body.appendChild(label);
 
-  const CURSOR_SMOOTHING = 0.22;
+  const CURSOR_SMOOTHING = 0.16;
   const USE_DWELL_CLICK = true;
   const DWELL_CLICK_MS = 700;
   const DWELL_RADIUS_PX = 16;
@@ -1766,4 +1773,7 @@ async function bootstrap() {
   });
 })();
 
-bootstrap();
+if (!window.__AFK_MAIN_BOOTSTRAPPED__) {
+  window.__AFK_MAIN_BOOTSTRAPPED__ = true;
+  bootstrap();
+}

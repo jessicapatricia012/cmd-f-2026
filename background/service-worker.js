@@ -1304,14 +1304,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.tabs.create({ active: true }).catch(() => {});
       return;
     }
-    if (msg.event === "gesture:refreshtab") {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const id = tabs[0]?.id;
-        if (id != null) chrome.tabs.reload(id).catch(() => {});
-      });
-      return;
-    }
-
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
         chrome.tabs.sendMessage(tabs[0].id, msg).catch(() => {});
