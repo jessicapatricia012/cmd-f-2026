@@ -10,9 +10,9 @@ const TOKEN_SERVER = "http://localhost:5001/scribe-token";
 const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
-const COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down", "scroll down", "go down"] },
-  { action: "page-up", phrases: ["page up", "scroll up", "go up"] },
+const DEFAULT_COMMAND_ALIASES = [
+  { action: "page-down", phrases: ["page down", "scroll down"] },
+  { action: "page-up", phrases: ["page up", "scroll up"] },
   { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
   { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
   {
@@ -36,14 +36,9 @@ const COMMAND_ALIASES = [
     phrases: ["unmute", "unmute video", "video unmute"],
   },
   { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
-  {
-    action: "fullscreen-enter",
-    phrases: ["enter fullscreen", "enter full screen"],
-  },
-  {
-    action: "fullscreen-exit",
-    phrases: ["exit full screen", "leave full screen"],
-  },
+  { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"] },
+  { action: "fullscreen-exit", phrases: ["exit full screen", "leave full screen"] },
+  { action: "click-target", phrases: ["click", "click that", "click this", "select this"] },
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -56,6 +51,91 @@ const COMMAND_ALIASES = [
     phrases: ["reload", "refresh", "reload page", "refresh page"],
   },
 ];
+
+function normalizePhrase(phrase) {
+  return normalizeText(String(phrase || ""));
+}
+
+const SPECIAL_KEY_MAP = {
+  enter: { key: "Enter", code: "Enter", keyCode: 13, label: "Enter" },
+  return: { key: "Enter", code: "Enter", keyCode: 13, label: "Enter" },
+  tab: { key: "Tab", code: "Tab", keyCode: 9, label: "Tab" },
+  space: { key: " ", code: "Space", keyCode: 32, label: "Space" },
+  spacebar: { key: " ", code: "Space", keyCode: 32, label: "Space" },
+  escape: { key: "Escape", code: "Escape", keyCode: 27, label: "Escape" },
+  esc: { key: "Escape", code: "Escape", keyCode: 27, label: "Escape" },
+  backspace: { key: "Backspace", code: "Backspace", keyCode: 8, label: "Backspace" },
+  delete: { key: "Delete", code: "Delete", keyCode: 46, label: "Delete" },
+  home: { key: "Home", code: "Home", keyCode: 36, label: "Home" },
+  end: { key: "End", code: "End", keyCode: 35, label: "End" },
+  "page up": { key: "PageUp", code: "PageUp", keyCode: 33, label: "Page Up" },
+  "page down": { key: "PageDown", code: "PageDown", keyCode: 34, label: "Page Down" },
+  up: { key: "ArrowUp", code: "ArrowUp", keyCode: 38, label: "Arrow Up" },
+  "arrow up": { key: "ArrowUp", code: "ArrowUp", keyCode: 38, label: "Arrow Up" },
+  down: { key: "ArrowDown", code: "ArrowDown", keyCode: 40, label: "Arrow Down" },
+  "arrow down": { key: "ArrowDown", code: "ArrowDown", keyCode: 40, label: "Arrow Down" },
+  left: { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, label: "Arrow Left" },
+  "arrow left": { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, label: "Arrow Left" },
+  right: { key: "ArrowRight", code: "ArrowRight", keyCode: 39, label: "Arrow Right" },
+  "arrow right": { key: "ArrowRight", code: "ArrowRight", keyCode: 39, label: "Arrow Right" },
+};
+
+function resolveSpokenKey(phrase) {
+  const normalized = normalizePhrase(phrase);
+  if (!normalized) return null;
+
+  if (SPECIAL_KEY_MAP[normalized]) return SPECIAL_KEY_MAP[normalized];
+
+  if (/^[a-z]$/.test(normalized)) {
+    const upper = normalized.toUpperCase();
+    return {
+      key: normalized,
+      code: `Key${upper}`,
+      keyCode: upper.charCodeAt(0),
+      label: upper,
+    };
+  }
+
+  if (/^[0-9]$/.test(normalized)) {
+    return {
+      key: normalized,
+      code: `Digit${normalized}`,
+      keyCode: normalized.charCodeAt(0),
+      label: normalized,
+    };
+  }
+
+  const fKeyMatch = normalized.match(/^f([1-9]|1[0-2])$/);
+  if (fKeyMatch) {
+    const n = Number(fKeyMatch[1]);
+    return {
+      key: `F${n}`,
+      code: `F${n}`,
+      keyCode: 111 + n,
+      label: `F${n}`,
+    };
+  }
+
+  return null;
+}
+
+function buildCommandAliases(customKeywords = {}) {
+  const merged = [];
+
+  for (const entry of DEFAULT_COMMAND_ALIASES) {
+    const custom = customKeywords?.[entry.action];
+    if (Array.isArray(custom) && custom.length > 0) {
+      const phrases = custom.map(normalizePhrase).filter(Boolean);
+      if (phrases.length > 0) {
+        merged.push({ action: entry.action, phrases });
+        continue;
+      }
+    }
+    merged.push(entry);
+  }
+
+  return merged;
+}
 
 function normalizeText(value) {
   return String(value || "")
@@ -90,13 +170,13 @@ function findPhraseIndexes(text, phrase) {
   return indexes;
 }
 
-function detectCommands(text, { requireWakeWord = true } = {}) {
+function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT_COMMAND_ALIASES } = {}) {
   const normalized = normalizeText(text);
   if (!normalized) return { normalized, matches: [] };
 
   const matches = [];
 
-  for (const { action, phrases } of COMMAND_ALIASES) {
+  for (const { action, phrases } of commandAliases) {
     for (const phrase of phrases) {
       const wakeNeedle = `${WAKE_WORD} ${phrase}`;
       const wakeIndexes = findPhraseIndexes(normalized, wakeNeedle);
@@ -125,15 +205,59 @@ function detectCommands(text, { requireWakeWord = true } = {}) {
     }
   }
 
+  // Detect "afk press/hit/tap/type/key <key>" pattern
+  const keyPattern = requireWakeWord
+    ? /\bafk\s+(?:press|hit|tap|type|key)\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\b/g
+    : /\b(?:press|hit|tap|type|key)\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\b/g;
+  let keyMatch = keyPattern.exec(normalized);
+  while (keyMatch) {
+    const keyPhrase = keyMatch[1];
+    const keyData = resolveSpokenKey(keyPhrase);
+    if (keyData) {
+      matches.push({
+        action: "press-key",
+        index: keyMatch.index,
+        keyData,
+      });
+    }
+    keyMatch = keyPattern.exec(normalized);
+  }
+
+  // Detect "afk click <label text>" pattern — e.g. "afk click sign in"
+  // Strips trailing "button" or "link" suffix so natural speech works.
+  const clickTextPattern = requireWakeWord
+    ? /\bafk\s+click\s+(.+?)(?:\s+button|\s+link)?\s*$/g
+    : /\bclick\s+(.+?)(?:\s+button|\s+link)?\s*$/g;
+  let clickTextMatch = clickTextPattern.exec(normalized);
+  while (clickTextMatch) {
+    const labelText = clickTextMatch[1].trim();
+    // Only treat as click-text if the label is more than a single generic word
+    // ("click that", "click this", "click" are handled by the existing click-target alias).
+    const genericClickPhrases = new Set(["that", "this", ""]);
+    if (labelText && !genericClickPhrases.has(labelText)) {
+      matches.push({
+        action: "click-text",
+        index: clickTextMatch.index,
+        labelText,
+      });
+    }
+    clickTextMatch = clickTextPattern.exec(normalized);
+  }
+
   matches.sort((a, b) => a.index - b.index);
 
   // Build stable markers by per-action order in the utterance.
   // This avoids duplicate firing when partial transcript edits shift indexes.
   const actionOrdinal = new Map();
   for (const match of matches) {
-    const nextOrdinal = (actionOrdinal.get(match.action) || 0) + 1;
-    actionOrdinal.set(match.action, nextOrdinal);
-    match.marker = `${match.action}#${nextOrdinal}`;
+    const actionKey = match.keyData
+      ? `${match.action}:${match.keyData.code}`
+      : match.labelText
+      ? `${match.action}:${match.labelText}`
+      : match.action;
+    const nextOrdinal = (actionOrdinal.get(actionKey) || 0) + 1;
+    actionOrdinal.set(actionKey, nextOrdinal);
+    match.marker = `${actionKey}#${nextOrdinal}`;
   }
 
   const unique = [];
@@ -186,6 +310,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let shouldRestart = false;
   let forceBrowserSpeech = false;
   let requireWakeWord = true;
+  let commandAliases = DEFAULT_COMMAND_ALIASES;
   let firedMarkers = new Set();
   let lastPartialNormalized = "";
   const lastFiredAt = new Map();
@@ -204,19 +329,34 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     for (const match of matches) {
       if (firedMarkers.has(match.marker)) continue;
 
-      const previous = lastFiredAt.get(match.action) || 0;
+      const cooldownKey = match.keyData
+        ? `${match.action}:${match.keyData.code}`
+        : match.labelText
+        ? `${match.action}:${match.labelText}`
+        : match.action;
+      const previous = lastFiredAt.get(cooldownKey) || 0;
       if (now - previous < COMMAND_COOLDOWN_MS) continue;
 
       firedMarkers.add(match.marker);
-      lastFiredAt.set(match.action, now);
+      lastFiredAt.set(cooldownKey, now);
       firedCount += 1;
 
       if (typeof onCommand === "function") {
-        onCommand(match.action, {
+        const meta = {
           transcript,
           committed,
           source: "voice",
-        });
+        };
+        if (match.keyData) {
+          meta.key = match.keyData.key;
+          meta.code = match.keyData.code;
+          meta.keyCode = match.keyData.keyCode;
+          meta.keyLabel = match.keyData.label;
+        }
+        if (match.labelText) {
+          meta.labelText = match.labelText;
+        }
+        onCommand(match.action, meta);
       }
       setStatus(`heard: ${match.action}`);
     }
@@ -226,9 +366,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function processTranscript(text, { committed = false } = {}) {
     const transcript = String(text || "");
-    const { normalized, matches } = detectCommands(transcript, {
-      requireWakeWord,
-    });
+    const { normalized, matches } = detectCommands(transcript, { requireWakeWord, commandAliases });
 
     if (!committed) {
       lastPartialNormalized = normalized;
@@ -460,6 +598,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     if (typeof nextConfig.requireWakeWord === "boolean") {
       requireWakeWord = nextConfig.requireWakeWord;
       setStatus(requireWakeWord ? "wake-word:on" : "wake-word:off");
+    }
+    if (nextConfig.customKeywords && typeof nextConfig.customKeywords === "object") {
+      commandAliases = buildCommandAliases(nextConfig.customKeywords);
+      setStatus("keywords:updated");
     }
   }
 
