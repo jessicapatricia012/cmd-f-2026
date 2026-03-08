@@ -25,6 +25,10 @@ chrome.storage.local.get("afkState", (result) => {
   }
 });
 
+async function getState() {
+  return afkState;
+}
+
 async function saveState() {
   return chrome.storage.local.set({ afkState });
 }

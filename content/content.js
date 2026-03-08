@@ -266,7 +266,9 @@ function getCommandLabel(action, meta = {}) {
     "click-number": meta?.clickIndex ? `Click #${meta.clickIndex}` : "Click",
     "list-clickable": "Show Clickable",
     "close-list": "Close List",
-    "voice-search": meta?.searchQuery ? `Search: ${meta.searchQuery}` : "Voice Search",
+    "voice-search": meta?.searchQuery
+      ? `Search: ${meta.searchQuery}`
+      : "Voice Search",
   };
   return labels[action] || action;
 }
@@ -389,7 +391,9 @@ function isVideoPlayingNow() {
   }
 
   const videos = Array.from(document.querySelectorAll("video"));
-  return videos.some((video) => !video.paused && !video.ended && video.readyState >= 2);
+  return videos.some(
+    (video) => !video.paused && !video.ended && video.readyState >= 2,
+  );
 }
 
 async function maybePauseOnAttentionLost(reason = "attention-lost") {
@@ -472,20 +476,25 @@ function handleEyeAttentionStatus(detail = {}) {
     if (eyeGazeDotEl) eyeGazeDotEl.style.opacity = "0";
   }
   if (state === "unsupported") {
-    debugLog(`eye attention unsupported: ${detail?.reason || "unknown"}`, "warn");
+    debugLog(
+      `eye attention unsupported: ${detail?.reason || "unknown"}`,
+      "warn",
+    );
   } else if (state === "ready") {
-    debugLog(`eye attention ready: ${detail?.engine || "unknown engine"}`, "ok");
+    debugLog(
+      `eye attention ready: ${detail?.engine || "unknown engine"}`,
+      "ok",
+    );
   } else if (
     state === "mesh-send" ||
     state === "mesh-send-ok" ||
     state === "mesh-results"
   ) {
-    const extra =
-      detail?.reason
-        ? ` (${detail.reason})`
-        : detail?.points
-          ? ` (points=${detail.points})`
-          : "";
+    const extra = detail?.reason
+      ? ` (${detail.reason})`
+      : detail?.points
+        ? ` (points=${detail.points})`
+        : "";
     const type = state === "mesh-send-failed" ? "error" : "info";
     debugLog(`eye attention ${state}${extra}`, type);
   }
@@ -494,11 +503,17 @@ function handleEyeAttentionStatus(detail = {}) {
 function handleAttentionAction(detail = {}) {
   const action = detail?.action || detail?.eventName || "attention";
   if (detail?.ok === false) {
-    debugLog(`attention action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`, "error");
+    debugLog(
+      `attention action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`,
+      "error",
+    );
     return;
   }
   if (detail?.skipped) {
-    debugLog(`attention action skipped: ${action} (${detail?.reason || "unknown"})`, "warn");
+    debugLog(
+      `attention action skipped: ${action} (${detail?.reason || "unknown"})`,
+      "warn",
+    );
     return;
   }
   debugLog(`attention action ok: ${action}`, "ok");
@@ -631,7 +646,8 @@ async function initVoiceEngine() {
         `voice parsed: ${action}${meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : ""}`,
       );
       if (action === "dictate-start") {
-        if (lastFocusedEditable) voiceEngine?.setDictationTarget?.(lastFocusedEditable);
+        if (lastFocusedEditable)
+          voiceEngine?.setDictationTarget?.(lastFocusedEditable);
         return;
       }
       if (action === "dictate-stop") {
@@ -669,7 +685,18 @@ function isEditableEl(el) {
   if (el.tagName === "TEXTAREA" || el.isContentEditable) return true;
   if (el.tagName === "INPUT") {
     const t = (el.type || "text").toLowerCase();
-    return !["submit","button","checkbox","radio","file","range","color","hidden","image","reset"].includes(t);
+    return ![
+      "submit",
+      "button",
+      "checkbox",
+      "radio",
+      "file",
+      "range",
+      "color",
+      "hidden",
+      "image",
+      "reset",
+    ].includes(t);
   }
   return false;
 }
@@ -720,7 +747,9 @@ function initLocalEventBridge() {
 
 function findVideo() {
   const videos = Array.from(document.querySelectorAll("video"));
-  return videos.find((v) => !v.paused && v.readyState >= 2) || videos[0] || null;
+  return (
+    videos.find((v) => !v.paused && v.readyState >= 2) || videos[0] || null
+  );
 }
 
 function executePageCommand(action, meta = {}) {
@@ -758,12 +787,15 @@ function executePageCommand(action, meta = {}) {
       break;
     }
     case "video-next": {
-      const btn = document.querySelector(".ytp-next-button, [aria-label*='next' i], [aria-label*='skip' i]");
+      const btn = document.querySelector(
+        ".ytp-next-button, [aria-label*='next' i], [aria-label*='skip' i]",
+      );
       btn?.click();
       break;
     }
     case "fullscreen-enter":
-      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      if (!document.fullscreenElement)
+        document.documentElement.requestFullscreen().catch(() => {});
       break;
     case "fullscreen-exit":
       if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
@@ -771,13 +803,15 @@ function executePageCommand(action, meta = {}) {
     case "press-key": {
       const target = document.activeElement || document.body;
       ["keydown", "keypress", "keyup"].forEach((type) => {
-        target.dispatchEvent(new KeyboardEvent(type, {
-          key: meta.key,
-          code: meta.code,
-          keyCode: meta.keyCode,
-          bubbles: true,
-          cancelable: true,
-        }));
+        target.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: meta.key,
+            code: meta.code,
+            keyCode: meta.keyCode,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
       });
       break;
     }
@@ -789,9 +823,15 @@ function executePageCommand(action, meta = {}) {
     case "click-text": {
       if (!meta.labelText) break;
       const needle = meta.labelText.toLowerCase();
-      const candidates = document.querySelectorAll("a, button, [role='button'], [role='link'], input[type='submit'], input[type='button']");
+      const candidates = document.querySelectorAll(
+        "a, button, [role='button'], [role='link'], input[type='submit'], input[type='button']",
+      );
       for (const el of candidates) {
-        if ((el.textContent || el.value || el.ariaLabel || "").toLowerCase().includes(needle)) {
+        if (
+          (el.textContent || el.value || el.ariaLabel || "")
+            .toLowerCase()
+            .includes(needle)
+        ) {
           el.click();
           break;
         }
@@ -803,24 +843,36 @@ function executePageCommand(action, meta = {}) {
       if (Array.isArray(items) && meta.clickIndex > 0) {
         const item = items[meta.clickIndex - 1];
         if (item?.rect) {
-          const el = document.elementFromPoint(item.rect.left + 4, item.rect.top + 4);
+          const el = document.elementFromPoint(
+            item.rect.left + 4,
+            item.rect.top + 4,
+          );
           el?.click();
         }
       }
       break;
     }
     case "list-clickable": {
-      const clickable = Array.from(document.querySelectorAll(
-        "a[href], button:not([disabled]), [role='button'], [role='link'], input[type='submit'], input[type='button']"
-      ))
+      const clickable = Array.from(
+        document.querySelectorAll(
+          "a[href], button:not([disabled]), [role='button'], [role='link'], input[type='submit'], input[type='button']",
+        ),
+      )
         .filter((el) => {
           const r = el.getBoundingClientRect();
-          return r.width > 0 && r.height > 0 && r.top >= 0 && r.top < window.innerHeight;
+          return (
+            r.width > 0 &&
+            r.height > 0 &&
+            r.top >= 0 &&
+            r.top < window.innerHeight
+          );
         })
         .slice(0, 20)
         .map((el, i) => ({
           index: i + 1,
-          label: (el.textContent || el.value || el.ariaLabel || "").trim().slice(0, 40),
+          label: (el.textContent || el.value || el.ariaLabel || "")
+            .trim()
+            .slice(0, 40),
           rect: el.getBoundingClientRect(),
         }));
       return { ok: true, items: clickable };
@@ -854,6 +906,7 @@ function initBackgroundStateListener() {
     if (message?.type !== CHANNEL.STATE_UPDATED) return;
     mergeState(message.payload);
     updateRuntimeModules();
+  });
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === CHANNEL.STATE_UPDATED) {
       mergeState(message.payload);
@@ -861,7 +914,9 @@ function initBackgroundStateListener() {
       return;
     }
     if (message?.type === "afk:execute") {
-      const result = executePageCommand(message.action, message) || { ok: true };
+      const result = executePageCommand(message.action, message) || {
+        ok: true,
+      };
       sendResponse(result);
     }
   });
@@ -948,7 +1003,7 @@ async function bootstrap() {
     }
   }, 5000);
   debugLog("content script boot");
-  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
+  await Promise.all([initHud(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();
@@ -961,7 +1016,6 @@ async function bootstrap() {
   updateRuntimeModules();
 }
 
-bootstrap();
 // Receives gesture messages from the service worker (relayed from offscreen.js)
 // and translates them into DOM interactions.
 

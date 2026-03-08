@@ -770,6 +770,8 @@ class GestureHandler {
       candidate === 'away' ? 'attention:look-away' : 'attention:look-at',
       { stableForMs },
     );
+  }
+
   _detectNewTab(isFistLike, now) {
     const s = this._s;
 
@@ -820,7 +822,6 @@ class GestureHandler {
 }
 
 const handler = new GestureHandler();
-handler.init().catch((err) => console.error('[AFK] offscreen failed:', err?.name, err?.message, err));
 handler
   .init()
   .catch((err) =>
