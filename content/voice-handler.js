@@ -11,18 +11,39 @@ const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down", "scroll down"] },
-  { action: "page-up", phrases: ["page up", "scroll up"] },
+  { action: "page-down", phrases: ["page down", "scroll down", "go down"] },
+  { action: "page-up", phrases: ["page up", "scroll up", "go up"] },
   { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
   { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
-  { action: "video-play", phrases: ["play", "resume", "play video", "video play"] },
-  { action: "video-pause", phrases: ["pause", "pause video", "paused video", "video pause", "stop video"] },
+  {
+    action: "video-play",
+    phrases: ["play", "resume", "play video", "video play"],
+  },
+  {
+    action: "video-pause",
+    phrases: [
+      "pause",
+      "pause video",
+      "paused video",
+      "video pause",
+      "stop video",
+    ],
+  },
   { action: "video-next", phrases: ["next video", "skip video", "video next"] },
   { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
-  { action: "video-unmute", phrases: ["unmute", "unmute video", "video unmute"] },
+  {
+    action: "video-unmute",
+    phrases: ["unmute", "unmute video", "video unmute"],
+  },
   { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
-  { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"] },
-  { action: "fullscreen-exit", phrases: ["exit full screen", "leave full screen"] },
+  {
+    action: "fullscreen-enter",
+    phrases: ["enter fullscreen", "enter full screen"],
+  },
+  {
+    action: "fullscreen-exit",
+    phrases: ["exit full screen", "leave full screen"],
+  },
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -30,7 +51,10 @@ const COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
-  { action: "reload", phrases: ["reload", "refresh", "reload page", "refresh page"] },
+  {
+    action: "reload",
+    phrases: ["reload", "refresh", "reload page", "refresh page"],
+  },
 ];
 
 function normalizeText(value) {
@@ -137,7 +161,11 @@ function getScribeModule() {
 
 function isYouTubeHost() {
   const host = (window.location.hostname || "").toLowerCase();
-  return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com";
+  return (
+    host === "youtube.com" ||
+    host === "www.youtube.com" ||
+    host === "m.youtube.com"
+  );
 }
 
 async function getToken() {
