@@ -39,6 +39,8 @@
     "page-refresh": { icon: "⟳", label: "Refresh"       },
     "fullscreen-enter": { icon: "⛶", label: "Fullscreen" },
     "fullscreen-exit":  { icon: "🗗", label: "Exit Fullscreen" },
+    "press-key":    { icon: "⌨", label: "Press Key"     },
+    "click-target": { icon: "🖱", label: "Click Target"  },
     "zoom-in":      { icon: "⊕", label: "Zoom In"      },
     "zoom-out":     { icon: "⊖", label: "Zoom Out"     },
   };
