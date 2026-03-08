@@ -80,11 +80,22 @@ const DEFAULT_COMMAND_ALIASES = [
   },
   {
     action: "dictate-start",
-    phrases: ["start writing", "start dictation", "start typing", "begin writing"],
+    phrases: [
+      "start writing",
+      "start dictation",
+      "start typing",
+      "begin writing",
+    ],
   },
   {
     action: "dictate-stop",
-    phrases: ["stop writing", "stop dictation", "stop typing", "done writing", "done typing"],
+    phrases: [
+      "stop writing",
+      "stop dictation",
+      "stop typing",
+      "done writing",
+      "done typing",
+    ],
   },
 ];
 
@@ -451,14 +462,21 @@ function isEditableInput(el) {
   if (el.tagName === "INPUT") {
     const type = (el.type || "text").toLowerCase();
     const excluded = new Set([
-      "submit", "button", "checkbox", "radio",
-      "file", "range", "color", "hidden", "image", "reset",
+      "submit",
+      "button",
+      "checkbox",
+      "radio",
+      "file",
+      "range",
+      "color",
+      "hidden",
+      "image",
+      "reset",
     ]);
     return !excluded.has(type);
   }
   return false;
 }
-
 
 function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let connection = null;
@@ -473,30 +491,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let lastPartialNormalized = "";
   const lastFiredAt = new Map();
   let restartTimer = null;
-  let commitInterval = null;
   let consecutiveErrors = 0;
   let lastErrorCode = "";
-
-  const COMMIT_INTERVAL_MS = 30_000;
-
-  function startCommitInterval() {
-    if (commitInterval) return;
-    commitInterval = setInterval(() => {
-      try {
-        connection?.commit?.();
-      } catch (_error) {
-        // ignore
-      }
-    }, COMMIT_INTERVAL_MS);
-  }
-
-  function stopCommitInterval() {
-    if (commitInterval) {
-      clearInterval(commitInterval);
-      commitInterval = null;
-    }
-  }
   let dictationTarget = null;
+  let skipCurrentUtterance = false;
   let partialStart = -1;
   let lastPartialLength = 0;
   let partialSpan = null;
@@ -656,17 +654,36 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     // Dictation mode: show partials immediately, finalize on commit.
     if (dictationTarget) {
       const norm = normalizeText(transcript);
-      const stopPhrases = ["stop writing", "stop dictation", "stop typing", "done writing", "done typing"];
+      const stopPhrases = [
+        "stop writing",
+        "stop dictation",
+        "stop typing",
+        "done writing",
+        "done typing",
+      ];
       if (stopPhrases.some((p) => norm.includes(p))) {
         resetDictationState();
         dictationTarget = null;
         setStatus(enabled ? "listening" : "off");
         return;
       }
-      const backspacePhrases = ["backspace", "delete that", "delete last word", "undo that"];
+      const backspacePhrases = [
+        "backspace",
+        "delete that",
+        "delete last word",
+        "undo that",
+      ];
       if (backspacePhrases.some((p) => norm.includes(p))) {
         resetDictationState();
         deleteLastWord(dictationTarget);
+        setStatus("dictating");
+        return;
+      }
+      if (skipCurrentUtterance) {
+        if (committed) {
+          skipCurrentUtterance = false;
+          resetDictationState();
+        }
         setStatus("dictating");
         return;
       }
@@ -706,8 +723,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     if (dictationTarget) {
       firedMarkers = new Set();
       lastPartialNormalized = "";
+      skipCurrentUtterance = true;
       setStatus("dictating");
     } else if (enabled) {
+      skipCurrentUtterance = false;
       setStatus("listening");
     }
   }
@@ -802,7 +821,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([
+      const [{ Scribe, RealtimeEvents, CommitStrategy }, token] = await Promise.all([
         getScribeModule(),
         getToken(),
       ]);
@@ -815,6 +834,11 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         token,
         modelId: "scribe_v2_realtime",
         includeTimestamps: false,
+        commitStrategy: CommitStrategy.VAD,
+        vadSilenceThresholdSecs: 1.5,
+        vadThreshold: 0.4,
+        minSpeechDurationMs: 100,
+        minSilenceDurationMs: 100,
         microphone: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -830,7 +854,6 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         consecutiveErrors = 0;
         lastErrorCode = "";
         setStatus("listening");
-        startCommitInterval();
       });
 
       connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
@@ -860,7 +883,6 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       });
 
       connection.on(RealtimeEvents.CLOSE, () => {
-        stopCommitInterval();
         connection = null;
         if (enabled && shouldRestart) {
           scheduleRestart();
@@ -885,7 +907,6 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   }
 
   function stop() {
-    stopCommitInterval();
     if (restartTimer) {
       clearTimeout(restartTimer);
       restartTimer = null;
