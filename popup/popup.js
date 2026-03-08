@@ -191,6 +191,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     faceSensitivityRow: document.getElementById("face-sensitivity-row"),
     sensitivityLabel: document.getElementById("sensitivity-label"),
     delayLabel: document.getElementById("delay-label"),
+    toggleGestureAnnouncements: document.getElementById("toggle-gesture-announcements"),
     toggleVoice: document.getElementById("toggle-voice"),
     toggleWakeword: document.getElementById("toggle-wakeword"),
     wakeWordInput: document.getElementById("wake-word-input"),
@@ -236,6 +237,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     setMainEnabled(elements.mainToggle, elements.statusText, enabled);
     elements.popupBody.style.display = enabled ? "" : "none";
     setMiniToggle(elements.toggleGesture, gesturesEnabled);
+    const gestureAnnouncementsEnabled = state.gestureAnnouncementsEnabled !== false;
+    setMiniToggle(elements.toggleGestureAnnouncements, gestureAnnouncementsEnabled);
+    const gestureAnnouncementsRow = document.getElementById("gesture-announcements-row");
+    if (gestureAnnouncementsRow) gestureAnnouncementsRow.style.display = gesturesEnabled ? "" : "none";
     setMiniToggle(elements.toggleFace, faceAttentionEnabled);
     const sensitivity = Number(state.faceAttentionSensitivity) || 3;
     elements.faceSensitivity.value = sensitivity;
@@ -301,6 +306,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   elements.toggleGesture.addEventListener("click", () => {
     const next = elements.toggleGesture.getAttribute("aria-checked") !== "true";
     updateState({ gesturesEnabled: next });
+  });
+
+  elements.toggleGestureAnnouncements.addEventListener("click", () => {
+    const next = elements.toggleGestureAnnouncements.getAttribute("aria-checked") !== "true";
+    updateState({ gestureAnnouncementsEnabled: next });
   });
 
   elements.toggleFace.addEventListener("click", () => {

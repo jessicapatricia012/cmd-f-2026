@@ -17,6 +17,7 @@ const DEFAULT_STATE = {
   requireWakeWord: true,
   wakeWord: "afk",
   customKeywords: {},
+  gestureAnnouncementsEnabled: true,
   debugEnabled: true,
 };
 let latestAttentionEvent = null;
@@ -1025,7 +1026,7 @@ async function stopOffscreen() {
 async function autoStartIfPermitted() {
   try {
     const perm = await navigator.permissions.query({ name: "camera" });
-    if (perm.state === "granted") await startOffscreen();
+    if (perm.state === "granted" && afkState.enabled) await startOffscreen();
   } catch {
     // permissions API unavailable — skip auto-start; user opens popup to enable
   }
@@ -1086,8 +1087,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     afkState = { ...afkState, ...(msg.payload || {}) };
     saveState()
       .then(() => broadcastState())
-      .then(() => {
+      .then(async () => {
         updateAttentionEnabled().catch(() => {});
+        if (afkState.enabled) {
+          await startOffscreen();
+        } else {
+          await stopOffscreen();
+        }
         sendResponse({ ok: true, state: afkState });
       })
       .catch((err) => sendResponse({ ok: false, error: String(err) }));

@@ -22,6 +22,7 @@ const INITIAL_STATE = {
   voiceEnabled: true,
   requireWakeWord: true,
   customKeywords: {},
+  gestureAnnouncementsEnabled: true,
 };
 
 let currentState = { ...INITIAL_STATE };
@@ -57,6 +58,7 @@ let lastVideoPresence = null;
 let _lastTTSMs = 0;
 
 function announceGesture(text) {
+  if (!currentState.gestureAnnouncementsEnabled) return;
   const now = Date.now();
   if (now - _lastTTSMs < 1500) return; // prevent overlapping announcements
   _lastTTSMs = now;
