@@ -9,11 +9,16 @@ const DEFAULT_STATE = {
   enabled: false,
   gesturesEnabled: true,
   faceAttentionEnabled: true,
+  faceAttentionSensitivity: 3,
+  faceAttentionDelay: 900,
+  gazeOffsetX: 0,
+  gazeOffsetY: 0,
   voiceEnabled: true,
   requireWakeWord: true,
   customKeywords: {},
 };
 let latestAttentionEvent = null;
+let latestFaceStatus = null;
 const attentionAutoPausedByTab = new Map();
 let lastAttentionActionAt = 0;
 const tabVideoPresence = new Map();
@@ -1041,8 +1046,19 @@ async function updateAttentionEnabled() {
   const faceEnabled = afkState.enabled && afkState.faceAttentionEnabled !== false;
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const hasVideo = activeTab?.id ? (tabVideoPresence.get(activeTab.id) || false) : false;
+  const sensitivity = afkState.faceAttentionSensitivity ?? 3;
+  const delay = afkState.faceAttentionDelay ?? 900;
+  const gazeOffsetX = afkState.gazeOffsetX ?? 0;
+  const gazeOffsetY = afkState.gazeOffsetY ?? 0;
   try {
-    await chrome.runtime.sendMessage({ type: "AFK_SET_ATTENTION", enabled: faceEnabled && hasVideo });
+    await chrome.runtime.sendMessage({
+      type: "AFK_SET_ATTENTION",
+      enabled: faceEnabled && hasVideo,
+      sensitivity,
+      delay,
+      gazeOffsetX,
+      gazeOffsetY,
+    });
   } catch {}
 }
 
@@ -1110,6 +1126,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       detail: latestAttentionEvent?.detail || null,
       at: latestAttentionEvent?.at || null,
     });
+    return;
+  }
+
+  if (msg.type === "AFK_GET_FACE_STATUS") {
+    sendResponse({ ok: true, state: latestFaceStatus });
     return;
   }
 
@@ -1274,6 +1295,29 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         at: Date.now(),
       };
       broadcastAttentionEvent(msg).catch(() => {});
+      if (msg.event === "attention:gaze" && msg.detail) {
+        chrome.runtime.sendMessage({
+          type: "AFK_GAZE_UPDATE",
+          normX: msg.detail.normX,
+          normY: msg.detail.normY,
+        }).catch(() => {});
+      }
+      if (msg.event === "attention:look-away" || msg.event === "attention:look-at") {
+        latestFaceStatus = msg.event === "attention:look-away" ? "away" : "looking";
+        chrome.runtime.sendMessage({
+          type: "AFK_FACE_STATUS",
+          state: latestFaceStatus,
+        }).catch(() => {});
+      } else if (msg.event === "attention:status") {
+        const s = msg.detail?.state;
+        if (s === "no-face" || s === "unsupported" || s === "ready") {
+          latestFaceStatus = s;
+          chrome.runtime.sendMessage({
+            type: "AFK_FACE_STATUS",
+            state: s,
+          }).catch(() => {});
+        }
+      }
       if (msg.event === "attention:look-away" || msg.event === "attention:look-at") {
         handleAttentionPlayback(msg.event).catch((err) => {
           console.warn("[AFK] attention playback handling failed:", err);
