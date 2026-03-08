@@ -287,7 +287,11 @@ function initDebugPanel() {
 
   let activeDebugTab = "gesture";
   panel.querySelector("#afk-debug-clear")?.addEventListener("click", () => {
-    const logMap = { gesture: debugGestureLog, face: debugFaceLog, voice: debugVoiceLog };
+    const logMap = {
+      gesture: debugGestureLog,
+      face: debugFaceLog,
+      voice: debugVoiceLog,
+    };
     const target = logMap[activeDebugTab];
     if (target) target.innerHTML = "";
   });
@@ -302,12 +306,26 @@ function initDebugPanel() {
         const isActive = t.dataset.tab === target;
         t.classList.toggle("afk-dtab--active", isActive);
         t.style.color = isActive ? "#e2e8f0" : "#64748b";
-        t.style.borderBottomColor = isActive ? (tabColors[t.dataset.tab] || "#e2e8f0") : "transparent";
+        t.style.borderBottomColor = isActive
+          ? tabColors[t.dataset.tab] || "#e2e8f0"
+          : "transparent";
       });
-      [debugGestureLog, debugFaceLog, debugVoiceLog].forEach((el) => { if (el) el.style.display = "none"; });
-      [debugGestureStatus, debugFaceStatus, debugVoiceStatus].forEach((el) => { if (el) el.style.display = "none"; });
-      const logMap = { gesture: debugGestureLog, face: debugFaceLog, voice: debugVoiceLog };
-      const statusMap = { gesture: debugGestureStatus, face: debugFaceStatus, voice: debugVoiceStatus };
+      [debugGestureLog, debugFaceLog, debugVoiceLog].forEach((el) => {
+        if (el) el.style.display = "none";
+      });
+      [debugGestureStatus, debugFaceStatus, debugVoiceStatus].forEach((el) => {
+        if (el) el.style.display = "none";
+      });
+      const logMap = {
+        gesture: debugGestureLog,
+        face: debugFaceLog,
+        voice: debugVoiceLog,
+      };
+      const statusMap = {
+        gesture: debugGestureStatus,
+        face: debugFaceStatus,
+        voice: debugVoiceStatus,
+      };
       if (logMap[target]) logMap[target].style.display = "";
       if (statusMap[target]) statusMap[target].style.display = "";
     });
@@ -328,7 +346,12 @@ function debugAppendToLog(logEl, message, type = "info") {
           : "#93c5fd";
   const item = document.createElement("div");
   item.style.cssText = `margin-bottom:4px;color:${color};font-size:11px;line-height:1.4;word-break:break-word;`;
-  const ts = new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const ts = new Date().toLocaleTimeString([], {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
   item.textContent = `[${ts}] ${message}`;
   logEl.prepend(item);
   while (logEl.children.length > DEBUG_MAX_ENTRIES) logEl.lastChild.remove();
@@ -363,8 +386,12 @@ function debugLog(message, type = "info") {
 function setDebugUIVisible(visible) {
   const debugPanel = document.getElementById("afk-debug-panel");
   if (debugPanel) debugPanel.style.display = visible ? "" : "none";
-  const faceVisible = visible && currentState.faceAttentionEnabled !== false && lastVideoPresence === true;
-  if (eyeAttentionBadgeEl) eyeAttentionBadgeEl.style.display = faceVisible ? "" : "none";
+  const faceVisible =
+    visible &&
+    currentState.faceAttentionEnabled !== false &&
+    lastVideoPresence === true;
+  if (eyeAttentionBadgeEl)
+    eyeAttentionBadgeEl.style.display = faceVisible ? "" : "none";
   if (eyeGazeDotEl) eyeGazeDotEl.style.display = faceVisible ? "" : "none";
   if (handCursorDotEl) handCursorDotEl.style.display = visible ? "" : "none";
 }
@@ -479,7 +506,9 @@ function isVoiceCaptureAllowedInThisTab() {
 
 function forwardVoiceDebug(kind, text) {
   try {
-    chrome.runtime.sendMessage({ type: "AFK_VOICE_DEBUG", detail: { kind, text } }).catch(() => {});
+    chrome.runtime
+      .sendMessage({ type: "AFK_VOICE_DEBUG", detail: { kind, text } })
+      .catch(() => {});
   } catch {}
 }
 
@@ -497,7 +526,12 @@ async function emitCommand(source, action, meta = {}) {
   if (!action || typeof action !== "string") return;
 
   const payload = { source, action, ...meta };
-  const logFn = source === SOURCE.VOICE ? debugLogVoice : source === SOURCE.SYSTEM ? debugLogFace : debugLogGesture;
+  const logFn =
+    source === SOURCE.VOICE
+      ? debugLogVoice
+      : source === SOURCE.SYSTEM
+        ? debugLogFace
+        : debugLogGesture;
   logFn(`command -> ${action}`);
   const result = await sendRuntimeMessage({ type: CHANNEL.COMMAND, payload });
 
@@ -513,7 +547,10 @@ async function emitCommand(source, action, meta = {}) {
   }
 
   if (result?.skipped) {
-    logFn(`command skipped <- ${action} (${result.reason || "unknown"})`, "warn");
+    logFn(
+      `command skipped <- ${action} (${result.reason || "unknown"})`,
+      "warn",
+    );
     console.info("[AFK] Command skipped:", result.reason || "unknown");
     return;
   }
@@ -620,10 +657,18 @@ function handleEyeAttentionStatus(detail = {}) {
   }
   if (state === "unsupported") {
     debugLogFace(`unsupported: ${detail?.reason || "unknown"}`, "warn");
-    debugSetStatus(debugFaceStatus, `Unsupported: ${detail?.reason || ""}`, "#fdba74");
+    debugSetStatus(
+      debugFaceStatus,
+      `Unsupported: ${detail?.reason || ""}`,
+      "#fdba74",
+    );
   } else if (state === "ready") {
     debugLogFace(`engine ready: ${detail?.engine || "unknown"}`, "ok");
-    debugSetStatus(debugFaceStatus, `Ready (${detail?.engine || "unknown"})`, "#86efac");
+    debugSetStatus(
+      debugFaceStatus,
+      `Ready (${detail?.engine || "unknown"})`,
+      "#86efac",
+    );
   } else if (state === "no-face") {
     debugSetStatus(debugFaceStatus, "No face detected", "#fca5a5");
   } else if (state === "face-detected") {
@@ -648,11 +693,17 @@ function handleEyeAttentionStatus(detail = {}) {
 function handleAttentionAction(detail = {}) {
   const action = detail?.action || detail?.eventName || "attention";
   if (detail?.ok === false) {
-    debugLogFace(`action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`, "error");
+    debugLogFace(
+      `action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`,
+      "error",
+    );
     return;
   }
   if (detail?.skipped) {
-    debugLogFace(`action skipped: ${action} (${detail?.reason || "unknown"})`, "warn");
+    debugLogFace(
+      `action skipped: ${action} (${detail?.reason || "unknown"})`,
+      "warn",
+    );
     return;
   }
   debugLogFace(`action ok: ${action}`, "ok");
@@ -783,7 +834,13 @@ async function initVoiceEngine() {
     onCommand: (action, meta) => {
       const transcript = String(meta?.transcript || "");
       if (transcript) debugLogVoice(`heard: "${transcript}"`);
-      const extra = meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : "";
+      const extra = meta?.labelText
+        ? ` ("${meta.labelText}")`
+        : meta?.clickIndex != null
+          ? ` (#${meta.clickIndex})`
+          : meta?.keyLabel
+            ? ` (${meta.keyLabel})`
+            : "";
       debugLogVoice(`command: ${action}${extra}`, "ok");
       debugSetStatus(debugVoiceStatus, `Command: ${action}${extra}`, "#86efac");
       emitCommand(SOURCE.VOICE, action, meta);
@@ -957,7 +1014,9 @@ function executePageCommand(action, meta = {}) {
       break;
     }
     case "dictate-start": {
-      const target = lastFocusedEditable || (isEditableEl(document.activeElement) ? document.activeElement : null);
+      const target =
+        lastFocusedEditable ||
+        (isEditableEl(document.activeElement) ? document.activeElement : null);
       voiceEngine?.setDictationTarget?.(target);
       break;
     }
@@ -966,8 +1025,11 @@ function executePageCommand(action, meta = {}) {
       ["keydown", "keypress", "keyup"].forEach((type) => {
         target.dispatchEvent(
           new KeyboardEvent(type, {
-            key: "Enter", code: "Enter", keyCode: 13,
-            bubbles: true, cancelable: true,
+            key: "Enter",
+            code: "Enter",
+            keyCode: 13,
+            bubbles: true,
+            cancelable: true,
           }),
         );
       });
@@ -1058,7 +1120,11 @@ function initBackgroundStateListener() {
         const now = Date.now();
         if (now - lastCursorStatusMs > 400) {
           lastCursorStatusMs = now;
-          debugSetStatus(debugGestureStatus, `Cursor: (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`, "#86efac");
+          debugSetStatus(
+            debugGestureStatus,
+            `Cursor: (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`,
+            "#86efac",
+          );
         }
         return;
       }
@@ -1069,12 +1135,17 @@ function initBackgroundStateListener() {
         return;
       }
       if (eventName === "gesture:scroll") {
-        debugLogGesture(`scroll dx=${(detail.dx ?? 0).toFixed(1)} dy=${(detail.dy ?? 0).toFixed(1)}`);
+        debugLogGesture(
+          `scroll dx=${(detail.dx ?? 0).toFixed(1)} dy=${(detail.dy ?? 0).toFixed(1)}`,
+        );
         debugSetStatus(debugGestureStatus, "Scrolling", "#93c5fd");
         return;
       }
       if (eventName === "gesture:click") {
-        debugLogGesture(`click (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`, "ok");
+        debugLogGesture(
+          `click (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`,
+          "ok",
+        );
         debugSetStatus(debugGestureStatus, "Click", "#86efac");
         return;
       }
@@ -1096,16 +1167,26 @@ function initBackgroundStateListener() {
       }
       if (eventName === "gesture:navigate") {
         debugLogGesture(`navigate ${detail.direction || ""}`, "ok");
-        debugSetStatus(debugGestureStatus, `Navigate ${detail.direction || ""}`, "#86efac");
+        debugSetStatus(
+          debugGestureStatus,
+          `Navigate ${detail.direction || ""}`,
+          "#86efac",
+        );
         return;
       }
-      if (typeof eventName === "string" && eventName.startsWith("gesture:drag")) {
+      if (
+        typeof eventName === "string" &&
+        eventName.startsWith("gesture:drag")
+      ) {
         debugLogGesture(eventName.replace("gesture:", ""));
         return;
       }
 
       // -- Face attention events --
-      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
+      if (
+        eventName === "attention:look-away" ||
+        eventName === "attention:look-at"
+      ) {
         handleEyeAttentionEvent(eventName, detail);
       } else if (eventName === "attention:status") {
         handleEyeAttentionStatus(detail);
@@ -1217,19 +1298,25 @@ async function bootstrap() {
       debugSetStatus(debugFaceStatus, "No attention events", "#fdba74");
     }
   }, 5000);
-   debugLogGesture("content script boot");
+  debugLogGesture("content script boot");
   debugLogFace("content script boot");
   debugLogVoice("content script boot");
-  await Promise.all([initHud(), initVoiceEngine()]);
+  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();
   initTabActivityListeners();
   await syncInitialState();
   await syncInitialAttentionStatus();
-  debugLogGesture(`state: enabled=${currentState.enabled} gestures=${currentState.gesturesEnabled}`);
-  debugLogFace(`state: enabled=${currentState.enabled} face=${currentState.faceAttentionEnabled}`);
-  debugLogVoice(`state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`);
+  debugLogGesture(
+    `state: enabled=${currentState.enabled} gestures=${currentState.gesturesEnabled}`,
+  );
+  debugLogFace(
+    `state: enabled=${currentState.enabled} face=${currentState.faceAttentionEnabled}`,
+  );
+  debugLogVoice(
+    `state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`,
+  );
   updateRuntimeModules();
   checkVideoPresence();
   new MutationObserver(() => checkVideoPresence()).observe(
