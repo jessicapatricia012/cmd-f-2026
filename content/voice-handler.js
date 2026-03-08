@@ -713,11 +713,19 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     }
 
     const rawNorm = normalizeText(transcript);
-    const vsRe = [
-      /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
-      /\blook\s+(?:up|for)\s+(.+?)\s*$/,
-      /\bfind\s+(.+?)\s*$/,
-    ];
+    // Respect requireWakeWord: require "afk" prefix when wake word mode is on.
+    // e.g. "AFK search for dogs" / "AFK find weather" / "AFK look up recipes"
+    const vsRe = requireWakeWord
+      ? [
+          /\bafk\s+search(?:\s+for)?\s+(.+?)\s*$/,
+          /\bafk\s+look\s+(?:up|for)\s+(.+?)\s*$/,
+          /\bafk\s+find\s+(.+?)\s*$/,
+        ]
+      : [
+          /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
+          /\blook\s+(?:up|for)\s+(.+?)\s*$/,
+          /\bfind\s+(.+?)\s*$/,
+        ];
     let detectedQuery = null;
     for (const re of vsRe) {
       const m = re.exec(rawNorm);
