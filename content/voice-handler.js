@@ -15,26 +15,11 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "page-up", phrases: ["page up", "scroll up"] },
   { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
   { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
-  {
-    action: "video-play",
-    phrases: ["play", "resume", "play video", "video play"],
-  },
-  {
-    action: "video-pause",
-    phrases: [
-      "pause",
-      "pause video",
-      "paused video",
-      "video pause",
-      "stop video",
-    ],
-  },
+  { action: "video-play", phrases: ["play", "resume", "play video", "video play"] },
+  { action: "video-pause", phrases: ["pause", "pause video", "paused video", "video pause", "stop video"] },
   { action: "video-next", phrases: ["next video", "skip video", "video next"] },
   { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
-  {
-    action: "video-unmute",
-    phrases: ["unmute", "unmute video", "video unmute"],
-  },
+  { action: "video-unmute", phrases: ["unmute", "unmute video", "video unmute"] },
   { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
   { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"] },
   { action: "fullscreen-exit", phrases: ["exit full screen", "leave full screen"] },
@@ -46,10 +31,8 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
-  {
-    action: "reload",
-    phrases: ["reload", "refresh", "reload page", "refresh page"],
-  },
+  { action: "list-clickable", phrases: ["what can i click", "show clickable", "list clickable", "show buttons", "show clickables"] },
+  { action: "close-list", phrases: ["close list", "hide list", "dismiss list", "close overlay", "hide clickable", "hide clickables", "close clickable", "close clickables"] },
 ];
 
 function normalizePhrase(phrase) {
@@ -193,8 +176,7 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
       for (const index of plainIndexes) {
         const hasWakePrefix =
           index >= WAKE_WORD.length + 1 &&
-          normalized.slice(index - (WAKE_WORD.length + 1), index) ===
-            `${WAKE_WORD} `;
+          normalized.slice(index - (WAKE_WORD.length + 1), index) === `${WAKE_WORD} `;
         if (hasWakePrefix) continue;
 
         matches.push({
@@ -223,6 +205,32 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
     keyMatch = keyPattern.exec(normalized);
   }
 
+  // Detect "afk click clickable <number>" pattern — e.g. "afk click clickable 3" or "afk click clickable three"
+  // Using "clickable" as a disambiguator prevents conflicts with elements named after numbers.
+  const WORD_TO_NUM = {
+    one: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+    sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  };
+  const numWords = Object.keys(WORD_TO_NUM).join("|");
+  const clickNumberPattern = requireWakeWord
+    ? new RegExp(`\\bafk\\s+click\\s+clickable\\s+(\\d+|${numWords})\\b`, "g")
+    : new RegExp(`\\bclick\\s+clickable\\s+(\\d+|${numWords})\\b`, "g");
+  let clickNumberMatch = clickNumberPattern.exec(normalized);
+  while (clickNumberMatch) {
+    const raw = clickNumberMatch[1];
+    const clickIndex = /^\d+$/.test(raw) ? parseInt(raw, 10) : (WORD_TO_NUM[raw] || 0);
+    if (clickIndex > 0) {
+      matches.push({
+        action: "click-number",
+        index: clickNumberMatch.index,
+        clickIndex,
+      });
+    }
+    clickNumberMatch = clickNumberPattern.exec(normalized);
+  }
+
   // Detect "afk click <label text>" pattern — e.g. "afk click sign in"
   // Strips trailing "button" or "link" suffix so natural speech works.
   const clickTextPattern = requireWakeWord
@@ -231,10 +239,11 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   let clickTextMatch = clickTextPattern.exec(normalized);
   while (clickTextMatch) {
     const labelText = clickTextMatch[1].trim();
-    // Only treat as click-text if the label is more than a single generic word
-    // ("click that", "click this", "click" are handled by the existing click-target alias).
+    // Skip generic click phrases and anything starting with "clickable" (handled by click-number)
     const genericClickPhrases = new Set(["that", "this", ""]);
-    if (labelText && !genericClickPhrases.has(labelText)) {
+    const isClickableNumber = /^clickable\s+(\d+|one|two|to|too|three|four|for|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(labelText);
+    const startsWithClickable = /^clickable\b/.test(labelText);
+    if (labelText && !genericClickPhrases.has(labelText) && !isClickableNumber && !startsWithClickable) {
       matches.push({
         action: "click-text",
         index: clickTextMatch.index,
@@ -254,6 +263,8 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
       ? `${match.action}:${match.keyData.code}`
       : match.labelText
       ? `${match.action}:${match.labelText}`
+      : match.clickIndex != null
+      ? `${match.action}:${match.clickIndex}`
       : match.action;
     const nextOrdinal = (actionOrdinal.get(actionKey) || 0) + 1;
     actionOrdinal.set(actionKey, nextOrdinal);
@@ -276,20 +287,14 @@ let scribeModulePromise = null;
 function getScribeModule() {
   if (!scribeModulePromise) {
     // Load vendored module from extension package (MV3-safe, no remote code import).
-    scribeModulePromise = import(
-      chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs")
-    );
+    scribeModulePromise = import(chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs"));
   }
   return scribeModulePromise;
 }
 
 function isYouTubeHost() {
   const host = (window.location.hostname || "").toLowerCase();
-  return (
-    host === "youtube.com" ||
-    host === "www.youtube.com" ||
-    host === "m.youtube.com"
-  );
+  return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com";
 }
 
 async function getToken() {
@@ -333,6 +338,8 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         ? `${match.action}:${match.keyData.code}`
         : match.labelText
         ? `${match.action}:${match.labelText}`
+        : match.clickIndex != null
+        ? `${match.action}:${match.clickIndex}`
         : match.action;
       const previous = lastFiredAt.get(cooldownKey) || 0;
       if (now - previous < COMMAND_COOLDOWN_MS) continue;
@@ -356,9 +363,12 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         if (match.labelText) {
           meta.labelText = match.labelText;
         }
+        if (match.clickIndex != null) {
+          meta.clickIndex = match.clickIndex;
+        }
         onCommand(match.action, meta);
       }
-      setStatus(`heard: ${match.action}`);
+      setStatus(`heard: ${match.labelText ? `click: ${match.labelText}` : match.action}`);
     }
 
     return firedCount;
@@ -385,10 +395,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function scheduleRestart() {
     if (!enabled || !shouldRestart) return;
-    const delay = Math.min(
-      RESTART_MAX_DELAY_MS,
-      RESTART_BASE_DELAY_MS + consecutiveErrors * 400,
-    );
+    const delay = Math.min(RESTART_MAX_DELAY_MS, RESTART_BASE_DELAY_MS + consecutiveErrors * 400);
     setStatus(`restarting in ${delay}ms`);
 
     if (restartTimer) clearTimeout(restartTimer);
@@ -473,10 +480,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([
-        getScribeModule(),
-        getToken(),
-      ]);
+      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([getScribeModule(), getToken()]);
       if (!enabled) {
         starting = false;
         return;
@@ -520,9 +524,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       });
 
       connection.on(RealtimeEvents.ERROR, (error) => {
-        const errorCode = String(
-          error?.code || error?.type || error?.message || "unknown",
-        );
+        const errorCode = String(error?.code || error?.type || error?.message || "unknown");
         lastErrorCode = errorCode;
         consecutiveErrors += 1;
         console.error("[AFK] Voice error:", error);
@@ -541,10 +543,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       lastErrorCode = String(error?.message || "unknown");
       consecutiveErrors += 1;
       forceBrowserSpeech = true;
-      console.warn(
-        "[AFK] ElevenLabs unavailable, falling back to browser speech:",
-        error,
-      );
+      console.warn("[AFK] ElevenLabs unavailable, falling back to browser speech:", error);
       setStatus("fallback: browser speech");
       connection = null;
       if (enabled && shouldRestart) startBrowserSpeech();
