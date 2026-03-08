@@ -438,6 +438,49 @@ if (typeof window !== "undefined") {
   });
 }
 
+// Patch AudioWorklet.prototype.addModule so that blob:/data: URLs created by the
+// ElevenLabs bundle are redirected to our self-hosted worklet file on pages with a
+// strict script-src CSP that blocks blob: and data: schemes.
+//
+// The identification strategy: when a blob/data URL fails, fetch the blob text and
+// check whether it registers "scribeAudioProcessor". If so, substitute our hosted
+// file (loaded from chrome-extension:// which is always CSP-exempt for extensions).
+if (typeof AudioWorklet !== "undefined") {
+  const _origAddModule = AudioWorklet.prototype.addModule;
+  const SCRIBE_URL = chrome.runtime.getURL("content/vendor/scribe-audio-processor.js");
+
+  AudioWorklet.prototype.addModule = async function patchedAddModule(moduleUrl, options) {
+    // Only intercept blob:/data: URLs — extension and https URLs pass through as-is.
+    if (typeof moduleUrl !== "string" ||
+        (!moduleUrl.startsWith("blob:") && !moduleUrl.startsWith("data:"))) {
+      return _origAddModule.call(this, moduleUrl, options);
+    }
+
+    try {
+      return await _origAddModule.call(this, moduleUrl, options);
+    } catch (err) {
+      // Original call failed (likely CSP). Identify the worklet by reading the source.
+      try {
+        let source;
+        if (moduleUrl.startsWith("blob:")) {
+          source = await fetch(moduleUrl).then((r) => r.text());
+        } else {
+          // data:application/javascript;base64,<b64>
+          const b64 = moduleUrl.replace(/^data:[^,]+,/, "");
+          source = atob(b64);
+        }
+
+        if (source.includes('"scribeAudioProcessor"') || source.includes("'scribeAudioProcessor'")) {
+          return await _origAddModule.call(this, SCRIBE_URL, options);
+        }
+      } catch {
+        // Could not read source — rethrow original error
+      }
+      throw err;
+    }
+  };
+}
+
 let scribeModulePromise = null;
 
 function getScribeModule() {
