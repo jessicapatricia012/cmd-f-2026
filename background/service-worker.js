@@ -1,31 +1,37 @@
 // Background service worker
-// Handles: offscreen document lifecycle, gesture message relay, zoom, tab switching
+// Handles: offscreen document lifecycle, gesture message relay, zoom, tab switching, state management
 
-const STORAGE_KEY = "afkState";
+// ---------------------------------------------------------------------------
+// State management
+// ---------------------------------------------------------------------------
+
 const DEFAULT_STATE = {
   enabled: false,
   gesturesEnabled: true,
+  faceAttentionEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
   customKeywords: {},
 };
+let latestAttentionEvent = null;
+const attentionAutoPausedByTab = new Map();
+let lastAttentionActionAt = 0;
+const tabVideoPresence = new Map();
 
-async function getState() {
-  const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  return {
-    ...DEFAULT_STATE,
-    ...(stored[STORAGE_KEY] || {}),
-  };
+let afkState = { ...DEFAULT_STATE };
+
+// Load persisted state on service-worker startup
+chrome.storage.local.get("afkState", (result) => {
+  if (result.afkState && typeof result.afkState === "object") {
+    afkState = { ...DEFAULT_STATE, ...result.afkState };
+  }
+});
+
+async function saveState() {
+  return chrome.storage.local.set({ afkState });
 }
 
-async function setState(partial) {
-  const current = await getState();
-  const next = { ...current, ...partial };
-  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
-  return next;
-}
-
-async function broadcastState(state) {
+async function broadcastState() {
   const tabs = await chrome.tabs.query({});
 
   await Promise.all(
@@ -34,13 +40,91 @@ async function broadcastState(state) {
       try {
         await chrome.tabs.sendMessage(tab.id, {
           type: "AFK_STATE_UPDATED",
-          payload: state,
+          payload: afkState,
         });
       } catch {
         // Ignore tabs without content script access.
       }
     }),
   );
+}
+
+async function broadcastAttentionEvent(message) {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab.id) return;
+      try {
+        await chrome.tabs.sendMessage(tab.id, message);
+      } catch {
+        // Ignore tabs without content script access.
+      }
+    }),
+  );
+}
+
+async function handleAttentionPlayback(eventName) {
+  const now = Date.now();
+  if (now - lastAttentionActionAt < 300) return;
+
+  if (!afkState.enabled || afkState.faceAttentionEnabled === false) {
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, ok: false, skipped: true, reason: "disabled" },
+    }).catch(() => {});
+    return;
+  }
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = activeTab?.id;
+  if (!tabId) {
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, ok: false, skipped: true, reason: "no-active-tab" },
+    }).catch(() => {});
+    return;
+  }
+
+  if (eventName === "attention:look-away") {
+    if (attentionAutoPausedByTab.get(tabId)) {
+      broadcastAttentionEvent({
+        type: "gesture",
+        event: "attention:action",
+        detail: { eventName, action: "video-pause", ok: true, skipped: true, reason: "already-paused" },
+      }).catch(() => {});
+      return;
+    }
+    await ACTION_HANDLERS["video-pause"](tabId);
+    attentionAutoPausedByTab.set(tabId, true);
+    lastAttentionActionAt = now;
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, action: "video-pause", ok: true, tabId },
+    }).catch(() => {});
+    return;
+  }
+
+  if (eventName === "attention:look-at") {
+    if (!attentionAutoPausedByTab.get(tabId)) {
+      broadcastAttentionEvent({
+        type: "gesture",
+        event: "attention:action",
+        detail: { eventName, action: "video-play", ok: true, skipped: true, reason: "not-auto-paused" },
+      }).catch(() => {});
+      return;
+    }
+    await ACTION_HANDLERS["video-play"](tabId);
+    attentionAutoPausedByTab.set(tabId, false);
+    lastAttentionActionAt = now;
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, action: "video-play", ok: true, tabId },
+    }).catch(() => {});
+  }
 }
 
 async function withActiveTab(callback, preferredTabId) {
@@ -846,72 +930,54 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return result;
   },
+  "voice-search": async (targetTabId, payload = {}) => {
+    const query = String(payload.searchQuery || "").trim();
+    if (!query) return { ok: false, error: "No search query provided" };
+    let status = { ok: false, error: "No search input found" };
+    await withActiveTab(async (tab) => {
+      status = await executeInTabWithResult(tab.id, (q) => {
+        const selectors = [
+          "input[type='search']", "input[name='q']", "input[name='query']",
+          "input[name='search']", "input[name='s']",
+          "input[placeholder*='search' i]", "input[aria-label*='search' i]",
+          "input[title*='search' i]", "textarea[name='q']", "input[type='text']",
+        ];
+        let input = null;
+        const active = document.activeElement;
+        if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+            active.type !== "hidden" && active.type !== "checkbox" && active.type !== "radio")
+          input = active;
+        if (!input) {
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el instanceof HTMLElement) {
+              const st = window.getComputedStyle(el);
+              if (st.display !== "none" && st.visibility !== "hidden") { input = el; break; }
+            }
+          }
+        }
+        if (!input) return { ok: false, error: "No search input found" };
+        input.focus();
+        const proto = input instanceof HTMLTextAreaElement
+          ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        nativeSetter ? nativeSetter.call(input, q) : (input.value = q);
+        input.value = q;
+        input.dispatchEvent(new Event("input",  { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        const ei = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        input.dispatchEvent(new KeyboardEvent("keydown",  ei));
+        input.dispatchEvent(new KeyboardEvent("keypress", ei));
+        input.dispatchEvent(new KeyboardEvent("keyup",    ei));
+        const form = input.closest("form");
+        if (form) { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {} }
+        return { ok: true, matched: q };
+      }, [query]);
+    }, targetTabId);
+    return status;
+  },
 };
 
-chrome.runtime.onInstalled.addListener(async () => {
-  const current = await getState();
-  await chrome.storage.sync.set({ [STORAGE_KEY]: current });
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  (async () => {
-    if (!message?.type) {
-      sendResponse({ ok: false, error: "Missing message type" });
-      return;
-    }
-
-    if (message.type === "AFK_GET_STATE") {
-      const state = await getState();
-      sendResponse({ ok: true, state });
-      return;
-    }
-
-    if (message.type === "AFK_SET_STATE") {
-      const nextState = await setState(message.payload || {});
-      await broadcastState(nextState);
-      sendResponse({ ok: true, state: nextState });
-      return;
-    }
-
-    if (message.type === "AFK_COMMAND") {
-      const state = await getState();
-      const action = message.payload?.action;
-
-      if (!state.enabled) {
-        sendResponse({ ok: true, skipped: true, reason: "disabled" });
-        return;
-      }
-
-      const handler = ACTION_HANDLERS[action];
-      if (!handler) {
-        sendResponse({ ok: false, error: `Unknown action: ${action}` });
-        return;
-      }
-
-      const sourceTabId = sender?.tab?.id;
-      const result = await handler(sourceTabId, message.payload || {});
-      if (result && typeof result === "object" && "ok" in result) {
-        sendResponse(result);
-        return;
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
-    sendResponse({
-      ok: false,
-      error: `Unsupported message type: ${message.type}`,
-    });
-  })().catch((error) => {
-    sendResponse({
-      ok: false,
-      error: error?.message || String(error),
-    });
-  });
-
-  return true;
-});
 
 // ---------------------------------------------------------------------------
 // Offscreen document helpers
@@ -971,11 +1037,212 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     autoStartIfPermitted().catch(console.error);
 });
 
+async function updateAttentionEnabled() {
+  const faceEnabled = afkState.enabled && afkState.faceAttentionEnabled !== false;
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const hasVideo = activeTab?.id ? (tabVideoPresence.get(activeTab.id) || false) : false;
+  try {
+    await chrome.runtime.sendMessage({ type: "AFK_SET_ATTENTION", enabled: faceEnabled && hasVideo });
+  } catch {}
+}
+
+chrome.tabs.onActivated.addListener(() => updateAttentionEnabled().catch(() => {}));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabVideoPresence.delete(tabId);
+  attentionAutoPausedByTab.delete(tabId);
+});
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Return current state to popup or content script
+  if (msg.type === "AFK_GET_STATE") {
+    sendResponse({ ok: true, state: afkState });
+    return;
+  }
+
+  // Merge partial state update, persist, and broadcast
+  if (msg.type === "AFK_SET_STATE") {
+    afkState = { ...afkState, ...(msg.payload || {}) };
+    saveState()
+      .then(() => broadcastState())
+      .then(() => {
+        updateAttentionEnabled().catch(() => {});
+        sendResponse({ ok: true, state: afkState });
+      })
+      .catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  // External attention events (from companion page / server)
+  if (msg.type === "AFK_EXTERNAL_ATTENTION") {
+    (async () => {
+      const eventName = String(msg.payload?.event || "");
+      if (!eventName.startsWith("attention:")) {
+        sendResponse({ ok: false, error: "Invalid external attention event" });
+        return;
+      }
+      latestAttentionEvent = {
+        event: eventName,
+        detail: msg.payload?.detail || {},
+        at: Date.now(),
+      };
+      const relay = {
+        type: "gesture",
+        event: eventName,
+        detail: msg.payload?.detail || {},
+      };
+      await broadcastAttentionEvent(relay);
+      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
+        await handleAttentionPlayback(eventName);
+      }
+      sendResponse({ ok: true });
+    })().catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (msg.type === "AFK_GET_ATTENTION_STATUS") {
+    sendResponse({
+      ok: true,
+      event: latestAttentionEvent?.event || null,
+      detail: latestAttentionEvent?.detail || null,
+      at: latestAttentionEvent?.at || null,
+    });
+    return;
+  }
+
+  if (msg.type === "AFK_VIDEO_PRESENCE") {
+    const tabId = sender?.tab?.id;
+    if (tabId != null) tabVideoPresence.set(tabId, Boolean(msg.hasVideo));
+    updateAttentionEnabled().catch(() => {});
+    sendResponse({ ok: true });
+    return;
+  }
+
+  // Execute a voice or gesture command
+  if (msg.type === "AFK_COMMAND") {
+    const { action, source, ...meta } = msg.payload || {};
+    const tabId = sender.tab?.id;
+
+    if (action === "zoom-in" || action === "zoom-out") {
+      if (!tabId) { sendResponse({ ok: false, error: "no tab" }); return; }
+      chrome.tabs.getZoom(tabId, (current) => {
+        const delta = action === "zoom-in" ? 0.1 : -0.1;
+        const next = Math.min(5, Math.max(0.25, Math.round((current + delta) * 10) / 10));
+        chrome.tabs.setZoom(tabId, next, () => sendResponse({ ok: true }));
+      });
+      return true;
+    }
+
+    if (action === "next-tab" || action === "prev-tab") {
+      chrome.tabs.query({ currentWindow: true }, (tabs) => {
+        const sorted = tabs.slice().sort((a, b) => a.index - b.index);
+        const activeIdx = sorted.findIndex((t) => t.active);
+        if (activeIdx === -1) { sendResponse({ ok: false }); return; }
+        const step = action === "next-tab" ? 1 : -1;
+        const nextIdx = (activeIdx + step + sorted.length) % sorted.length;
+        chrome.tabs.update(sorted[nextIdx].id, { active: true }, () => sendResponse({ ok: true }));
+      });
+      return true;
+    }
+
+    if (action === "new-tab") {
+      chrome.tabs.create({ active: true }, () => sendResponse({ ok: true }));
+      return true;
+    }
+
+    if (action === "go-back") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.goBack(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (action === "go-forward") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.goForward(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (action === "page-refresh") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) chrome.tabs.reload(tabs[0].id, () => sendResponse({ ok: true }));
+        else sendResponse({ ok: false });
+      });
+      return true;
+    }
+
+    if (action === "voice-search") {
+      const query = String(meta.searchQuery || "").trim();
+      if (!query) { sendResponse({ ok: false, error: "no query" }); return; }
+      (async () => {
+        // First try to fill a search input on the current page.
+        let filled = false;
+        if (tabId) {
+          try {
+            const results = await chrome.scripting.executeScript({
+              target: { tabId },
+              func: (q) => {
+                const selectors = [
+                  "input[type='search']", "input[name='q']", "input[name='query']",
+                  "input[name='search']", "input[name='s']",
+                  "input[placeholder*='search' i]", "input[aria-label*='search' i]",
+                  "input[title*='search' i]", "textarea[name='q']",
+                ];
+                let input = null;
+                for (const sel of selectors) {
+                  const el = document.querySelector(sel);
+                  if (el instanceof HTMLElement) {
+                    const st = window.getComputedStyle(el);
+                    if (st.display !== "none" && st.visibility !== "hidden") { input = el; break; }
+                  }
+                }
+                if (!input) return false;
+                input.focus();
+                const proto = input instanceof HTMLTextAreaElement
+                  ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+                const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+                nativeSetter ? nativeSetter.call(input, q) : (input.value = q);
+                input.dispatchEvent(new Event("input", { bubbles: true }));
+                input.dispatchEvent(new Event("change", { bubbles: true }));
+                const ei = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+                input.dispatchEvent(new KeyboardEvent("keydown", ei));
+                input.dispatchEvent(new KeyboardEvent("keypress", ei));
+                input.dispatchEvent(new KeyboardEvent("keyup", ei));
+                const form = input.closest("form");
+                if (form) { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {} }
+                return true;
+              },
+              args: [query],
+            });
+            filled = results?.[0]?.result === true;
+          } catch (_) {}
+        }
+        // No search box found — open Google in a new tab.
+        if (!filled) {
+          await chrome.tabs.create({ url: `https://www.google.com/search?q=${encodeURIComponent(query)}`, active: true });
+        }
+        sendResponse({ ok: true, matched: query });
+      })();
+      return true;
+    }
+    const targetTabId = tabId ?? null;
+    if (!targetTabId) { sendResponse({ ok: false, error: "no tab" }); return; }
+    chrome.tabs.sendMessage(
+      targetTabId,
+      { type: "afk:execute", action, ...meta },
+      (response) => {
+        sendResponse(response || { ok: true });
+      },
+    );
+    return true;
+  }
+
   // Popup toggled ON — camera permission was just granted by the popup
   if (msg.type === "start") {
     startOffscreen()
@@ -1000,10 +1267,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Relay gesture events from offscreen doc → active tab's content script
   if (msg.type === "gesture") {
+    if (typeof msg.event === "string" && msg.event.startsWith("attention:")) {
+      latestAttentionEvent = {
+        event: msg.event,
+        detail: msg.detail || {},
+        at: Date.now(),
+      };
+      broadcastAttentionEvent(msg).catch(() => {});
+      if (msg.event === "attention:look-away" || msg.event === "attention:look-at") {
+        handleAttentionPlayback(msg.event).catch((err) => {
+          console.warn("[AFK] attention playback handling failed:", err);
+          broadcastAttentionEvent({
+            type: "gesture",
+            event: "attention:action",
+            detail: {
+              eventName: msg.event,
+              ok: false,
+              error: err?.message || String(err),
+            },
+          }).catch(() => {});
+        });
+      }
+      return;
+    }
+
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
+
     if (msg.event === "gesture:closetab") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
         if (id != null) chrome.tabs.remove(id).catch(() => {});
+      });
+      return;
+    }
+    if (msg.event === "gesture:newtab") {
+      chrome.tabs.create({ active: true }).catch(() => {});
+      return;
+    }
+    if (msg.event === "gesture:refreshtab") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const id = tabs[0]?.id;
+        if (id != null) chrome.tabs.reload(id).catch(() => {});
       });
       return;
     }
@@ -1018,6 +1322,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Zoom in / out on the sender tab (request from content script)
   if (msg.type === "zoom") {
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
     const tabId = sender.tab?.id;
     if (!tabId) return;
     chrome.tabs.getZoom(tabId, (current) => {
@@ -1032,6 +1337,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Switch to the adjacent tab (request from content script)
   if (msg.type === "tabswitch") {
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
       const sorted = tabs.slice().sort((a, b) => a.index - b.index);
       const activeIdx = sorted.findIndex((t) => t.active);
