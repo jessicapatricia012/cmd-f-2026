@@ -424,6 +424,19 @@ function detectCommands(
   return { normalized, matches: unique };
 }
 
+// The ElevenLabs bundle has a race condition where the internal audio port
+// forwards microphone data before the WebSocket finishes connecting. That throw
+// is unguarded inside the bundle, so we intercept it here and suppress the
+// uncaught error. The consecutive-error fallback in the CLOSE handler will
+// switch to browser speech after repeated failures.
+if (typeof window !== "undefined") {
+  window.addEventListener("error", (event) => {
+    if (String(event?.error?.message || "").includes("WebSocket is not connected")) {
+      event.preventDefault();
+    }
+  });
+}
+
 let scribeModulePromise = null;
 
 function getScribeModule() {
@@ -924,6 +937,12 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       connection.on(RealtimeEvents.CLOSE, () => {
         connection = null;
         if (enabled && shouldRestart) {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= 3) {
+            forceBrowserSpeech = true;
+            console.warn("[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech");
+            setStatus("fallback: browser speech");
+          }
           scheduleRestart();
           return;
         }
