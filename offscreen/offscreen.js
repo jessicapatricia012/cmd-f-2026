@@ -38,6 +38,31 @@ const CFG = {
   ENABLE_DRAG: false,
   ENABLE_TAB_SWITCH: true,
   ENABLE_SWIPE: false,
+  TAB_PINCH_THRESHOLD: 0.08,
+  TAB_HOLD_SWITCH_MS: 420,
+  TAB_HOLD_MIN_NORM: 0.06,
+  TAB_HOLD_COOLDOWN_MS: 900,
+  TAB_SWITCH_BLOCK_AFTER_SCROLL_MS: 450,
+  CLAP_DISTANCE_THRESHOLD: 0.14,
+  CLAP_RELEASE_DISTANCE_THRESHOLD: 0.24,
+  CLAP_PRIME_DISTANCE_THRESHOLD: 0.36,
+  CLAP_TRANSITION_MAX_MS: 900,
+  CLAP_COOLDOWN_MS: 1400,
+  FINGER_CLUSTER_THRESHOLD: 0.21,
+  FINGER_CLUSTER_RELEASE_THRESHOLD: 0.26,
+  THUMB_PINCH_THRESHOLD: 0.24,
+  THUMB_PINCH_RELEASE_THRESHOLD: 0.29,
+  CLICK_MAX_MS: 700,
+  CLICK_COOLDOWN_MS: 500,
+  DOUBLE_PINCH_GAP_MS: 500,
+  DRAG_MIN_NORM: 0.012,
+  TAB_SWITCH_ARM_NORM: 0.03,
+  TAB_SWITCH_MIN_NORM: 0.08,
+  SCROLL_VELOCITY_THRESHOLD: 0.35,
+  SCROLL_SCALE: 320,
+  SCROLL_SMOOTHING: 0.22,
+  SCROLL_MAX_STEP_PX: 90,
+  SCROLL_DEADZONE_PX: 1.5,
   TAB_PINCH_THRESHOLD: 0.08, // index↔middle closeness for tab-switch pinch
   TAB_HOLD_SWITCH_MS: 420, // hold pinch before tab-switch can fire
   TAB_HOLD_MIN_NORM: 0.06, // horizontal pinch movement needed (~6% width)
@@ -76,6 +101,13 @@ const CFG = {
   ZOOM_COOLDOWN_MS: 750,
   ZOOM_HOLD_MS: 220,
   ZOOM_BLOCK_AFTER_SCROLL_MS: 700,
+  ATTENTION_CHECK_INTERVAL_MS: 220,
+  ATTENTION_AWAY_STABLE_MS: 900,
+  ATTENTION_LOOKING_STABLE_MS: 450,
+  ATTENTION_FACE_GRACE_MS: 1200,
+  ATTENTION_CENTER_X_MIN: 0.34,
+  ATTENTION_CENTER_X_MAX: 0.66,
+  ATTENTION_YAW_RATIO_MAX: 0.48,
 };
 
 // ---------------------------------------------------------------------------
@@ -88,6 +120,12 @@ class GestureHandler {
     this._loopTimer = null;
     this._running = false;
     this._consecutiveSendFailures = 0;
+    this._faceMesh = null;
+    this._attentionEngine = 'none';
+    this._attentionTickInFlight = false;
+    this._attentionLastCheckMs = 0;
+    this._attentionStatusLastSentAt = new Map();
+    this._attentionFatalError = null;
 
     this._s = {
       pinching: false,
@@ -121,11 +159,17 @@ class GestureHandler {
       lastScrollMs: 0,
       palmOpenSinceMs: null,
       fistSinceMs: null,
+      attentionCandidateState: null,
+      attentionCandidateSinceMs: 0,
+      attentionState: null,
+      lastFaceSeenMs: 0,
       fistLastSeenMs: 0,
     };
   }
 
   async init() {
+    console.log('[AFK] offscreen init…');
+    this._setupAttention();
     console.log("[AFK] offscreen init…");
     this._setupHands();
     await this._startCamera();
@@ -147,6 +191,51 @@ class GestureHandler {
       minTrackingConfidence: 0.5,
     });
     this._hands.onResults((r) => this._onResults(r));
+  }
+
+  _setupAttention() {
+    this._faceMeshSandbox = document.getElementById('facemesh-sandbox');
+    if (!this._faceMeshSandbox) {
+      this._attentionEngine = 'none';
+      console.warn('[AFK] No face attention engine available — sandbox iframe missing');
+      this._emit('attention:status', { state: 'unsupported', reason: 'sandbox iframe missing' });
+      return;
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data?.type) return;
+
+      if (data.type === 'facemesh-ready') {
+        this._attentionEngine = 'face-mesh';
+        console.log('[AFK] MediaPipe Face Mesh (sandboxed) enabled for attention auto-pause');
+        this._emit('attention:status', { state: 'ready', engine: this._attentionEngine });
+      } else if (data.type === 'facemesh-results') {
+        this._attentionTickInFlight = false;
+        this._handleAttentionFaceMeshResults(
+          { multiFaceLandmarks: data.faces },
+          Date.now(),
+        );
+      } else if (data.type === 'facemesh-error') {
+        console.warn('[AFK] FaceMesh sandbox error:', data.error);
+        this._attentionTickInFlight = false;
+        this._attentionFatalError = data.error;
+        this._attentionEngine = 'none';
+        this._emit('attention:status', {
+          state: 'unsupported',
+          reason: `FaceMesh blocked: ${data.error}`,
+        });
+      }
+    });
+
+    this._attentionEngine = 'face-mesh-pending';
+    console.log('[AFK] Waiting for FaceMesh sandbox to initialize…');
+
+    this._faceMeshSandbox.addEventListener('load', () => {
+      if (this._attentionEngine === 'face-mesh-pending') {
+        this._faceMeshSandbox.contentWindow.postMessage({ type: 'facemesh-ping' }, '*');
+      }
+    });
   }
 
   async _startCamera() {
@@ -176,7 +265,6 @@ class GestureHandler {
         this._consecutiveSendFailures += 1;
         console.warn("[AFK] hands.send error:", err);
 
-        // Prevent endless noisy spam when model assets fail to load.
         if (this._consecutiveSendFailures >= 20) {
           this._running = false;
           console.error(
@@ -187,6 +275,7 @@ class GestureHandler {
       })
       .finally(() => {
         if (!this._running) return;
+        this._tickAttention();
         // Offscreen documents can throttle/skip rAF because they are never visible.
         this._loopTimer = setTimeout(() => this._loop(), 33);
       });
@@ -251,6 +340,7 @@ class GestureHandler {
       !isScrollPosture;
     const isPinching = CFG.ENABLE_TAB_SWITCH ? isTabPinch : isThreeFingerPinch;
 
+    this._emit('gesture:cursor', { normX: 1 - indexTip.x, normY: indexTip.y });
     // Cursor: index fingertip, mirrored (normX=0 left of screen)
     this._emit("gesture:cursor", { normX: 1 - indexTip.x, normY: indexTip.y });
 
@@ -303,7 +393,7 @@ class GestureHandler {
   }
 
   // -------------------------------------------------------------------------
-  // Gesture detectors (all positions in normalised 0-1 coords)
+  // Gesture detectors
   // -------------------------------------------------------------------------
 
   _detectPinch(isPinching, indexTip, middleTip, now) {
@@ -437,7 +527,6 @@ class GestureHandler {
     )
       return;
 
-    // Smooth raw hand velocity to reduce jitter and micro-oscillation.
     s.scrollVx += (vx - s.scrollVx) * CFG.SCROLL_SMOOTHING;
     s.scrollVy += (vy - s.scrollVy) * CFG.SCROLL_SMOOTHING;
 
@@ -562,6 +651,125 @@ class GestureHandler {
     s.clapPrimedMs = 0;
   }
 
+  _tickAttention() {
+    if (this._attentionEngine === 'none' || this._attentionEngine === 'face-mesh-pending'
+        || this._attentionTickInFlight || this._attentionFatalError) return;
+    const now = Date.now();
+    if (now - this._attentionLastCheckMs < CFG.ATTENTION_CHECK_INTERVAL_MS) return;
+    this._attentionLastCheckMs = now;
+    this._attentionTickInFlight = true;
+
+    if (this._attentionEngine === 'face-mesh' && this._faceMeshSandbox) {
+      this._emitAttentionStatusThrottled('mesh-send');
+      createImageBitmap(this._video)
+        .then((bitmap) => {
+          this._faceMeshSandbox.contentWindow.postMessage(
+            { type: 'facemesh-frame', image: bitmap },
+            '*',
+            [bitmap],
+          );
+          this._emitAttentionStatusThrottled('mesh-send-ok', { engine: this._attentionEngine }, 1400);
+        })
+        .catch((err) => {
+          const reason = err?.message || String(err);
+          console.warn('[AFK] FaceMesh frame capture failed:', reason);
+          this._attentionFatalError = reason;
+          this._attentionEngine = 'none';
+          this._attentionTickInFlight = false;
+          this._emit('attention:status', {
+            state: 'unsupported',
+            reason: `Frame capture failed: ${reason}`,
+          });
+        });
+      return;
+    }
+
+    this._attentionTickInFlight = false;
+  }
+
+  _handleAttentionFaceMeshResults(results, now) {
+    const lm = results?.multiFaceLandmarks?.[0] || null;
+    this._emitAttentionStatusThrottled('mesh-results', {
+      points: lm?.length || 0,
+      engine: this._attentionEngine,
+    }, 1200);
+    const s = this._s;
+    let candidate = 'away';
+
+    if (lm && lm.length > 264) {
+      s.lastFaceSeenMs = now;
+      this._emit('attention:status', { state: 'face-detected' });
+      const leftEyeOuter = lm[33];
+      const rightEyeOuter = lm[263];
+      const noseTip = lm[1];
+      const gazeX =
+        typeof noseTip?.x === 'number'
+          ? noseTip.x
+          : typeof leftEyeOuter?.x === 'number' && typeof rightEyeOuter?.x === 'number'
+            ? (leftEyeOuter.x + rightEyeOuter.x) / 2
+            : null;
+      const gazeY =
+        typeof noseTip?.y === 'number'
+          ? noseTip.y
+          : typeof leftEyeOuter?.y === 'number' && typeof rightEyeOuter?.y === 'number'
+            ? (leftEyeOuter.y + rightEyeOuter.y) / 2
+            : null;
+      if (typeof gazeX === 'number' && typeof gazeY === 'number') {
+        this._emit('attention:gaze', {
+          normX: Math.max(0, Math.min(1, 1 - gazeX)),
+          normY: Math.max(0, Math.min(1, gazeY)),
+          engine: this._attentionEngine,
+        });
+      }
+      candidate = this._isLookingAtScreenFaceMesh(lm) ? 'looking' : 'away';
+    } else if (now - s.lastFaceSeenMs <= CFG.ATTENTION_FACE_GRACE_MS) {
+      candidate = s.attentionState || 'looking';
+      this._emit('attention:status', { state: 'face-uncertain' });
+    } else {
+      this._emit('attention:status', { state: 'no-face' });
+    }
+
+    this._commitAttentionCandidate(candidate, now);
+  }
+
+  _isLookingAtScreenFaceMesh(lm) {
+    const leftEyeOuter = lm[33];
+    const rightEyeOuter = lm[263];
+    const noseTip = lm[1];
+    if (!leftEyeOuter || !rightEyeOuter || !noseTip) return false;
+
+    const eyeMidX = (leftEyeOuter.x + rightEyeOuter.x) / 2;
+    const eyeSpan = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
+    const centered =
+      eyeMidX >= CFG.ATTENTION_CENTER_X_MIN &&
+      eyeMidX <= CFG.ATTENTION_CENTER_X_MAX;
+    if (eyeSpan <= 0.0001) return centered;
+
+    const yawRatio = Math.abs((noseTip.x - eyeMidX) / (eyeSpan / 2));
+    return centered && yawRatio <= CFG.ATTENTION_YAW_RATIO_MAX;
+  }
+
+  _commitAttentionCandidate(candidate, now) {
+    const s = this._s;
+    if (candidate !== s.attentionCandidateState) {
+      s.attentionCandidateState = candidate;
+      s.attentionCandidateSinceMs = now;
+      return;
+    }
+
+    if (s.attentionState === candidate) return;
+    const stableForMs = now - s.attentionCandidateSinceMs;
+    const neededMs =
+      candidate === 'away'
+        ? CFG.ATTENTION_AWAY_STABLE_MS
+        : CFG.ATTENTION_LOOKING_STABLE_MS;
+    if (stableForMs < neededMs) return;
+
+    s.attentionState = candidate;
+    this._emit(
+      candidate === 'away' ? 'attention:look-away' : 'attention:look-at',
+      { stableForMs },
+    );
   _detectNewTab(isFistLike, now) {
     const s = this._s;
 
@@ -595,6 +803,15 @@ class GestureHandler {
     return Math.hypot(a.x - b.x, a.y - b.y);
   }
 
+  _emitAttentionStatusThrottled(state, detail = {}, minIntervalMs = 900) {
+    const key = String(state || '');
+    const now = Date.now();
+    const last = this._attentionStatusLastSentAt.get(key) || 0;
+    if (now - last < minIntervalMs) return;
+    this._attentionStatusLastSentAt.set(key, now);
+    this._emit('attention:status', { state: key, ...detail });
+  }
+
   _emit(type, detail) {
     chrome.runtime
       .sendMessage({ type: "gesture", event: type, detail })
@@ -603,6 +820,7 @@ class GestureHandler {
 }
 
 const handler = new GestureHandler();
+handler.init().catch((err) => console.error('[AFK] offscreen failed:', err?.name, err?.message, err));
 handler
   .init()
   .catch((err) =>
