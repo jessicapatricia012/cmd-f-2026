@@ -114,6 +114,9 @@ function getCommandLabel(action, meta = {}) {
     "press-key": meta?.keyLabel ? `Press ${meta.keyLabel}` : "Press Key",
     "click-target": "Click Target",
     "click-text": meta?.labelText ? `Click: ${meta.labelText}` : "Click",
+    "click-number": meta?.clickIndex ? `Click #${meta.clickIndex}` : "Click",
+    "list-clickable": "Show Clickable",
+    "close-list": "Close List",
   };
   return labels[action] || action;
 }
@@ -201,9 +204,14 @@ async function emitCommand(source, action, meta = {}) {
   const result = await sendRuntimeMessage({ type: CHANNEL.COMMAND, payload });
 
   if (result?.ok && !result?.skipped) {
+    // For list-clickable, render the overlay with returned items.
+    if (action === "list-clickable" && Array.isArray(result.items)) {
+      showClickableOverlay(result.items);
+    }
     hud?.showFeedback?.({ action, source, labelText: meta?.labelText });
     showCommandToast(action, source, meta);
-    debugLog(`command ok <- ${action}`, "ok");
+    const matchedLabel = result.matched ? ` -> "${result.matched}"` : "";
+    debugLog(`command ok <- ${action}${matchedLabel}`, "ok");
     return;
   }
 
@@ -213,8 +221,112 @@ async function emitCommand(source, action, meta = {}) {
     return;
   }
 
-  debugLog(`command failed <- ${action} (${result?.error || "unknown error"})`, "error");
+  debugLog(`command failed <- ${action}${meta?.labelText ? ` ("${meta.labelText}")` : ""} (${result?.error || "unknown error"})`, "error");
   console.warn("[AFK] Command failed:", result?.error || "unknown error");
+}
+
+// ── Clickable overlay ──────────────────────────────────────────────────────
+
+let clickableOverlayEl = null;
+const clickableBadges = [];
+
+function removeClickableOverlay() {
+  if (clickableOverlayEl) {
+    clickableOverlayEl.remove();
+    clickableOverlayEl = null;
+  }
+  for (const badge of clickableBadges) {
+    badge.remove();
+  }
+  clickableBadges.length = 0;
+  window.__afkClickableItems = null;
+}
+
+function showClickableOverlay(items) {
+  removeClickableOverlay();
+  if (!items || items.length === 0) return;
+
+  // Store items so voice "click-number" can reference them without re-querying DOM
+  window.__afkClickableItems = items;
+
+  // ── Floating panel ────────────────────────────────────────────────────────
+  const panel = document.createElement("div");
+  panel.id = "afk-clickable-panel";
+  panel.style.cssText = [
+    "position:fixed",
+    "top:50%",
+    "right:16px",
+    "transform:translateY(-50%)",
+    "z-index:2147483647",
+    "width:240px",
+    "max-height:70vh",
+    "overflow-y:auto",
+    "background:rgba(2,6,23,.96)",
+    "border:1px solid #334155",
+    "border-radius:10px",
+    "color:#e2e8f0",
+    "font:13px/1.4 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial",
+    "box-shadow:0 12px 32px rgba(0,0,0,.45)",
+    "padding:8px 0",
+  ].join(";");
+
+  const header = document.createElement("div");
+  header.style.cssText = "padding:6px 12px 8px;font-size:11px;font-weight:700;letter-spacing:.05em;color:#94a3b8;border-bottom:1px solid #1e293b;display:flex;justify-content:space-between;align-items:center;";
+  header.innerHTML = `<span>CLICKABLE ELEMENTS</span><span style="font-size:10px;color:#64748b;font-weight:400;">say "click clickable N"</span><button id="afk-clickable-close" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;line-height:1;padding:0;">✕</button>`;
+  panel.appendChild(header);
+
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;transition:background .12s;";
+    row.onmouseenter = () => { row.style.background = "rgba(99,102,241,.15)"; };
+    row.onmouseleave = () => { row.style.background = ""; };
+    row.onclick = () => {
+      removeClickableOverlay();
+      sendRuntimeMessage({ type: CHANNEL.COMMAND, payload: { action: "click-number", clickIndex: item.index } });
+    };
+
+    const badge = document.createElement("span");
+    badge.style.cssText = "min-width:20px;height:20px;border-radius:50%;background:#6366f1;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
+    badge.textContent = item.index;
+
+    const label = document.createElement("span");
+    label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0;";
+    label.textContent = item.label;
+
+    row.appendChild(badge);
+    row.appendChild(label);
+    panel.appendChild(row);
+  }
+
+  document.documentElement.appendChild(panel);
+  clickableOverlayEl = panel;
+
+  panel.querySelector("#afk-clickable-close")?.addEventListener("click", removeClickableOverlay);
+
+  // ── Numbered badges on page ───────────────────────────────────────────────
+  for (const item of items) {
+    if (!item.rect) continue;
+    const b = document.createElement("div");
+    b.style.cssText = [
+      "position:fixed",
+      `top:${item.rect.top}px`,
+      `left:${item.rect.left}px`,
+      "z-index:2147483646",
+      "min-width:20px",
+      "height:20px",
+      "border-radius:50%",
+      "background:#6366f1",
+      "color:#fff",
+      "font:700 11px/20px ui-sans-serif,system-ui,-apple-system,sans-serif",
+      "text-align:center",
+      "padding:0 4px",
+      "pointer-events:none",
+      "box-shadow:0 2px 6px rgba(0,0,0,.4)",
+    ].join(";");
+    b.textContent = item.index;
+    document.documentElement.appendChild(b);
+    clickableBadges.push(b);
+  }
 }
 
 function updateRuntimeModules() {
@@ -291,7 +403,7 @@ async function initVoiceEngine() {
     onCommand: (action, meta) => {
       const transcript = String(meta?.transcript || "");
       if (transcript) debugLog(`voice heard: "${transcript}"`);
-      debugLog(`voice parsed: ${action}`);
+      debugLog(`voice parsed: ${action}${meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : ""}`);
       emitCommand(SOURCE.VOICE, action, meta);
     },
     onTranscript: (text, meta) => {
@@ -326,6 +438,11 @@ function initLocalEventBridge() {
     const action = event?.detail?.action;
     const meta = event?.detail?.meta || {};
     emitCommand(source, action, meta);
+  });
+
+  // Close the clickable overlay when requested by background handlers.
+  window.addEventListener("afk:close-clickable-list", () => {
+    removeClickableOverlay();
   });
 }
 

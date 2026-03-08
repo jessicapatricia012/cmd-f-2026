@@ -43,6 +43,9 @@
     "click-target": { icon: "🖱", label: "Click Target"  },
     "zoom-in":      { icon: "⊕", label: "Zoom In"      },
     "zoom-out":     { icon: "⊖", label: "Zoom Out"     },
+    "list-clickable": { icon: "🔍", label: "Show Clickable" },
+    "close-list":   { icon: "✕", label: "Close List"   },
+    "click-number": { icon: "🖱", label: "Click"        },
   };
 
   // ── Build DOM ──────────────────────────────────────────────────────────────
@@ -111,8 +114,11 @@
 
   function _showFeedback({ action, source = "gesture", labelText } = {}) {
     // For click-text, show the actual element label that was clicked.
+    // For click-number, show the number that was clicked.
     const meta = action === "click-text"
       ? { icon: "🖱", label: labelText ? `Click: ${labelText}` : "Click" }
+      : action === "click-number"
+      ? { icon: "🖱", label: labelText ? `Click #${labelText}` : "Click" }
       : ACTION_LABELS[action] || { icon: "◈", label: action };
 
     feedIcon.textContent   = meta.icon;

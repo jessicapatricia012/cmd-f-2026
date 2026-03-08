@@ -31,6 +31,8 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
+  { action: "list-clickable", phrases: ["what can i click", "show clickable", "list clickable", "show buttons", "show clickables"] },
+  { action: "close-list", phrases: ["close list", "hide list", "dismiss list", "close overlay"] },
 ];
 
 function normalizePhrase(phrase) {
@@ -203,6 +205,32 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
     keyMatch = keyPattern.exec(normalized);
   }
 
+  // Detect "afk click clickable <number>" pattern — e.g. "afk click clickable 3" or "afk click clickable three"
+  // Using "clickable" as a disambiguator prevents conflicts with elements named after numbers.
+  const WORD_TO_NUM = {
+    one: 1, two: 2, three: 3, four: 4, five: 5,
+    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+    sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+  };
+  const numWords = Object.keys(WORD_TO_NUM).join("|");
+  const clickNumberPattern = requireWakeWord
+    ? new RegExp(`\\bafk\\s+click\\s+clickable\\s+(\\d+|${numWords})\\b`, "g")
+    : new RegExp(`\\bclick\\s+clickable\\s+(\\d+|${numWords})\\b`, "g");
+  let clickNumberMatch = clickNumberPattern.exec(normalized);
+  while (clickNumberMatch) {
+    const raw = clickNumberMatch[1];
+    const clickIndex = /^\d+$/.test(raw) ? parseInt(raw, 10) : (WORD_TO_NUM[raw] || 0);
+    if (clickIndex > 0) {
+      matches.push({
+        action: "click-number",
+        index: clickNumberMatch.index,
+        clickIndex,
+      });
+    }
+    clickNumberMatch = clickNumberPattern.exec(normalized);
+  }
+
   // Detect "afk click <label text>" pattern — e.g. "afk click sign in"
   // Strips trailing "button" or "link" suffix so natural speech works.
   const clickTextPattern = requireWakeWord
@@ -211,10 +239,10 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   let clickTextMatch = clickTextPattern.exec(normalized);
   while (clickTextMatch) {
     const labelText = clickTextMatch[1].trim();
-    // Only treat as click-text if the label is more than a single generic word
-    // ("click that", "click this", "click" are handled by the existing click-target alias).
+    // Skip generic click phrases and the "clickable N" pattern (handled by click-number above)
     const genericClickPhrases = new Set(["that", "this", ""]);
-    if (labelText && !genericClickPhrases.has(labelText)) {
+    const isClickableNumber = /^clickable\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(labelText);
+    if (labelText && !genericClickPhrases.has(labelText) && !isClickableNumber) {
       matches.push({
         action: "click-text",
         index: clickTextMatch.index,
@@ -234,6 +262,8 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
       ? `${match.action}:${match.keyData.code}`
       : match.labelText
       ? `${match.action}:${match.labelText}`
+      : match.clickIndex != null
+      ? `${match.action}:${match.clickIndex}`
       : match.action;
     const nextOrdinal = (actionOrdinal.get(actionKey) || 0) + 1;
     actionOrdinal.set(actionKey, nextOrdinal);
@@ -307,6 +337,8 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         ? `${match.action}:${match.keyData.code}`
         : match.labelText
         ? `${match.action}:${match.labelText}`
+        : match.clickIndex != null
+        ? `${match.action}:${match.clickIndex}`
         : match.action;
       const previous = lastFiredAt.get(cooldownKey) || 0;
       if (now - previous < COMMAND_COOLDOWN_MS) continue;
@@ -329,6 +361,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         }
         if (match.labelText) {
           meta.labelText = match.labelText;
+        }
+        if (match.clickIndex != null) {
+          meta.clickIndex = match.clickIndex;
         }
         onCommand(match.action, meta);
       }
