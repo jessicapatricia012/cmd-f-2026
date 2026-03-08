@@ -18,6 +18,7 @@ const INITIAL_STATE = {
   gesturesEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
+  customKeywords: {},
 };
 
 let currentState = { ...INITIAL_STATE };
@@ -94,7 +95,7 @@ function debugLog(message, type = "info") {
   debugList.prepend(item);
 }
 
-function getCommandLabel(action) {
+function getCommandLabel(action, meta = {}) {
   const labels = {
     "page-down": "Page Down",
     "page-up": "Page Up",
@@ -116,11 +117,17 @@ function getCommandLabel(action) {
     "page-refresh": "Refresh",
     "fullscreen-enter": "Fullscreen",
     "fullscreen-exit": "Exit Fullscreen",
+    "press-key": meta?.keyLabel ? `Press ${meta.keyLabel}` : "Press Key",
+    "click-target": "Click Target",
+    "click-text": meta?.labelText ? `Click: ${meta.labelText}` : "Click",
+    "click-number": meta?.clickIndex ? `Click #${meta.clickIndex}` : "Click",
+    "list-clickable": "Show Clickable",
+    "close-list": "Close List",
   };
   return labels[action] || action;
 }
 
-function showCommandToast(action, source) {
+function showCommandToast(action, source, meta = {}) {
   if (!commandToastEl) {
     commandToastEl = document.createElement("div");
     commandToastEl.id = "afk-command-toast";
@@ -152,7 +159,7 @@ function showCommandToast(action, source) {
   const nextKey = `${sourceLabel}:${action}`;
   const renderToast = () => {
     if (!commandToastEl) return;
-    commandToastEl.textContent = `${sourceLabel}: ${getCommandLabel(action)}`;
+    commandToastEl.textContent = `${sourceLabel}: ${getCommandLabel(action, meta)}`;
     commandToastEl.style.opacity = "1";
     commandToastEl.style.transform = "translateX(-50%) translateY(0)";
     commandToastTimer = setTimeout(() => {
@@ -203,9 +210,14 @@ async function emitCommand(source, action, meta = {}) {
   const result = await sendRuntimeMessage({ type: CHANNEL.COMMAND, payload });
 
   if (result?.ok && !result?.skipped) {
-    hud?.showFeedback?.({ action, source });
-    showCommandToast(action, source);
-    debugLog(`command ok <- ${action}`, "ok");
+    // For list-clickable, render the overlay with returned items.
+    if (action === "list-clickable" && Array.isArray(result.items)) {
+      showClickableOverlay(result.items);
+    }
+    hud?.showFeedback?.({ action, source, labelText: meta?.labelText });
+    showCommandToast(action, source, meta);
+    const matchedLabel = result.matched ? ` -> "${result.matched}"` : "";
+    debugLog(`command ok <- ${action}${matchedLabel}`, "ok");
     return;
   }
 
@@ -219,10 +231,57 @@ async function emitCommand(source, action, meta = {}) {
   }
 
   debugLog(
-    `command failed <- ${action} (${result?.error || "unknown error"})`,
+    `command failed <- ${action}${meta?.labelText ? ` ("${meta.labelText}")` : ""} (${result?.error || "unknown error"})`,
     "error",
   );
   console.warn("[AFK] Command failed:", result?.error || "unknown error");
+}
+
+// ── Clickable overlay ──────────────────────────────────────────────────────
+
+const clickableBadges = [];
+
+function removeClickableOverlay() {
+  // Remove stale panel if it exists from a previous version
+  document.getElementById("afk-clickable-panel")?.remove();
+  for (const badge of clickableBadges) {
+    badge.remove();
+  }
+  clickableBadges.length = 0;
+  window.__afkClickableItems = null;
+}
+
+function showClickableOverlay(items) {
+  removeClickableOverlay();
+  if (!items || items.length === 0) return;
+
+  // Store items so voice "click-number" can reference them without re-querying DOM
+  window.__afkClickableItems = items;
+
+  // ── Numbered badges on page ───────────────────────────────────────────────
+  for (const item of items) {
+    if (!item.rect) continue;
+    const b = document.createElement("div");
+    b.style.cssText = [
+      "position:fixed",
+      `top:${item.rect.top}px`,
+      `left:${item.rect.left}px`,
+      "z-index:2147483646",
+      "min-width:20px",
+      "height:20px",
+      "border-radius:50%",
+      "background:#6366f1",
+      "color:#fff",
+      "font:700 11px/20px ui-sans-serif,system-ui,-apple-system,sans-serif",
+      "text-align:center",
+      "padding:0 4px",
+      "pointer-events:none",
+      "box-shadow:0 2px 6px rgba(0,0,0,.4)",
+    ].join(";");
+    b.textContent = item.index;
+    document.documentElement.appendChild(b);
+    clickableBadges.push(b);
+  }
 }
 
 function updateRuntimeModules() {
@@ -252,6 +311,7 @@ function updateRuntimeModules() {
 
   voiceEngine?.setConfig?.({
     requireWakeWord: Boolean(currentState.requireWakeWord),
+    customKeywords: currentState.customKeywords || {},
   });
 
   hud?.setState?.({
@@ -300,7 +360,9 @@ async function initVoiceEngine() {
     onCommand: (action, meta) => {
       const transcript = String(meta?.transcript || "");
       if (transcript) debugLog(`voice heard: "${transcript}"`);
-      debugLog(`voice parsed: ${action}`);
+      debugLog(
+        `voice parsed: ${action}${meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : ""}`,
+      );
       emitCommand(SOURCE.VOICE, action, meta);
     },
     onTranscript: (text, meta) => {
@@ -335,6 +397,11 @@ function initLocalEventBridge() {
     const action = event?.detail?.action;
     const meta = event?.detail?.meta || {};
     emitCommand(source, action, meta);
+  });
+
+  // Close the clickable overlay when requested by background handlers.
+  window.addEventListener("afk:close-clickable-list", () => {
+    removeClickableOverlay();
   });
 }
 
@@ -827,3 +894,4 @@ bootstrap();
     }
   });
 })();
+bootstrap();

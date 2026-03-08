@@ -7,6 +7,7 @@ const DEFAULT_STATE = {
   gesturesEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
+  customKeywords: {},
 };
 
 async function getState() {
@@ -88,16 +89,42 @@ const ACTION_HANDLERS = {
   "page-down": async (targetTabId) => {
     await withActiveTab(async (tab) => {
       await executeInTab(tab.id, () => {
+        function findScrollableParent(el) {
+          while (el && el !== document.body) {
+            const style = window.getComputedStyle(el);
+            const overflowY = style.overflowY;
+            const canScroll = overflowY === "auto" || overflowY === "scroll";
+            if (canScroll && el.scrollHeight > el.clientHeight) return el;
+            el = el.parentElement;
+          }
+          return window;
+        }
+        const hovered = document.querySelectorAll(":hover");
+        const deepest = hovered[hovered.length - 1];
+        const target = deepest ? findScrollableParent(deepest) : window;
         const amount = Math.max(200, Math.floor(window.innerHeight * 0.9));
-        window.scrollBy({ top: amount, left: 0, behavior: "smooth" });
+        target.scrollBy({ top: amount, left: 0, behavior: "smooth" });
       });
     }, targetTabId);
   },
   "page-up": async (targetTabId) => {
     await withActiveTab(async (tab) => {
       await executeInTab(tab.id, () => {
+        function findScrollableParent(el) {
+          while (el && el !== document.body) {
+            const style = window.getComputedStyle(el);
+            const overflowY = style.overflowY;
+            const canScroll = overflowY === "auto" || overflowY === "scroll";
+            if (canScroll && el.scrollHeight > el.clientHeight) return el;
+            el = el.parentElement;
+          }
+          return window;
+        }
+        const hovered = document.querySelectorAll(":hover");
+        const deepest = hovered[hovered.length - 1];
+        const target = deepest ? findScrollableParent(deepest) : window;
         const amount = Math.max(200, Math.floor(window.innerHeight * 0.9));
-        window.scrollBy({ top: -amount, left: 0, behavior: "smooth" });
+        target.scrollBy({ top: -amount, left: 0, behavior: "smooth" });
       });
     }, targetTabId);
   },
@@ -354,6 +381,194 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return status;
   },
+  "click-target": async (targetTabId) => {
+    let status = { ok: false, error: "No clickable target found" };
+    await withActiveTab(async (tab) => {
+      status = await executeInTabWithResult(tab.id, () => {
+        const getElementLabel = (el) => {
+          if (!(el instanceof HTMLElement)) return "";
+          return (
+            el.innerText?.trim() ||
+            el.value ||
+            el.getAttribute("aria-label") ||
+            el.getAttribute("title") ||
+            el.getAttribute("placeholder") ||
+            `<${el.tagName.toLowerCase()}>`
+          ).slice(0, 60);
+        };
+
+        const isVisible = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(el);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.pointerEvents === "none"
+          ) {
+            return false;
+          }
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const isClickable = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          if (!isVisible(el)) return false;
+          return Boolean(
+            el.closest(
+              "button,a,[role='button'],input[type='button'],input[type='submit'],summary,[onclick],[data-action],[jsaction],[tabindex]",
+            ) ||
+            el.tagName === "BUTTON" ||
+            el.tagName === "A" ||
+            el.getAttribute("tabindex") === "0",
+          );
+        };
+
+        const clickElement = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const target =
+            el.closest(
+              "button,a,[role='button'],input[type='button'],input[type='submit'],summary,[onclick],[data-action],[jsaction]",
+            ) || el;
+          target.dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+          );
+          target.dispatchEvent(
+            new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+          );
+          target.click?.();
+          return true;
+        };
+
+        const active = document.activeElement;
+        if (isClickable(active) && clickElement(active)) {
+          return { ok: true, matched: getElementLabel(active) };
+        }
+
+        const hovered = Array.from(
+          document.querySelectorAll(":hover"),
+        ).reverse();
+        const hoveredTarget = hovered.find((el) => isClickable(el));
+        if (hoveredTarget && clickElement(hoveredTarget)) {
+          return { ok: true, matched: getElementLabel(hoveredTarget) };
+        }
+
+        const centerEl = document.elementFromPoint(
+          window.innerWidth / 2,
+          window.innerHeight / 2,
+        );
+        if (isClickable(centerEl) && clickElement(centerEl)) {
+          return { ok: true, matched: getElementLabel(centerEl) };
+        }
+
+        // Last resort: find any visible clickable element on screen
+        const allClickable = Array.from(
+          document.querySelectorAll(
+            "button, a, [role='button'], input[type='submit'], [tabindex='0']",
+          ),
+        ).filter(isVisible);
+        if (allClickable.length > 0 && clickElement(allClickable[0])) {
+          return { ok: true, matched: getElementLabel(allClickable[0]) };
+        }
+
+        return { ok: false, error: "No clickable target found" };
+      });
+    }, targetTabId);
+    return status;
+  },
+  // Finds and clicks an element by its visible text label.
+  // Triggered by voice commands like "AFK click sign in".
+  // Prefers exact matches over partial matches to avoid greedy misfires.
+  "click-text": async (targetTabId, payload = {}) => {
+    const label = String(payload.labelText || "")
+      .toLowerCase()
+      .trim();
+    if (!label) return { ok: false, error: "No label provided" };
+
+    let status = { ok: false, error: "No matching element found" };
+
+    await withActiveTab(async (tab) => {
+      status = await executeInTabWithResult(
+        tab.id,
+        (searchLabel) => {
+          const normalize = (s) =>
+            String(s || "")
+              .toLowerCase()
+              .replace(/\s+/g, " ")
+              .trim();
+
+          const isVisible = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const style = window.getComputedStyle(el);
+            if (
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.pointerEvents === "none"
+            ) {
+              return false;
+            }
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          };
+
+          const getLabel = (el) =>
+            normalize(
+              el.innerText ||
+                el.value ||
+                el.getAttribute("aria-label") ||
+                el.getAttribute("title") ||
+                el.getAttribute("placeholder") ||
+                "",
+            );
+
+          const isInteractableLi = (el) =>
+            el.tagName === "LI" &&
+            (el.hasAttribute("onclick") ||
+              el.hasAttribute("data-action") ||
+              el.getAttribute("tabindex") === "0" ||
+              el.getAttribute("jsaction") ||
+              el.closest("[jsaction]"));
+
+          const candidates = Array.from(
+            document.querySelectorAll(
+              "a, button, [role='button'], [role='option'], [role='menuitem'], [role='tab'], " +
+                "input[type='submit'], input[type='button'], label, summary, li",
+            ),
+          ).filter(
+            (el) =>
+              isVisible(el) && (el.tagName !== "LI" || isInteractableLi(el)),
+          );
+
+          // Prefer exact match first, fall back to partial match.
+          const exactMatch = candidates.find(
+            (el) => getLabel(el) === searchLabel,
+          );
+          const match =
+            exactMatch ||
+            candidates.find((el) => getLabel(el).includes(searchLabel));
+
+          if (!match) return { ok: false, error: "No matching element found" };
+
+          match.dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+          );
+          match.dispatchEvent(
+            new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+          );
+          match.click();
+
+          return {
+            ok: true,
+            matched: getLabel(match),
+            exact: Boolean(exactMatch),
+          };
+        },
+        [label],
+      );
+    }, targetTabId);
+
+    return status;
+  },
   "zoom-in": async (targetTabId) => {
     const active = targetTabId
       ? await chrome.tabs.get(targetTabId).catch(() => null)
@@ -423,12 +638,213 @@ const ACTION_HANDLERS = {
   "new-tab": async () => {
     await chrome.tabs.create({});
   },
+
   reload: async () => {
     const [active] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
     });
     if (active?.id) await chrome.tabs.reload(active.id);
+  },
+  "press-key": async (targetTabId, payload = {}) => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(
+        tab.id,
+        (keyPayload) => {
+          if (!keyPayload?.key || !keyPayload?.code) return;
+
+          const target =
+            (document.activeElement instanceof HTMLElement &&
+              document.activeElement) ||
+            document.body ||
+            document.documentElement;
+          const eventInit = {
+            key: keyPayload.key,
+            code: keyPayload.code,
+            keyCode: Number(keyPayload.keyCode) || 0,
+            which: Number(keyPayload.keyCode) || 0,
+            bubbles: true,
+            cancelable: true,
+          };
+
+          target?.dispatchEvent(new KeyboardEvent("keydown", eventInit));
+          target?.dispatchEvent(new KeyboardEvent("keyup", eventInit));
+        },
+        [payload],
+      );
+    }, targetTabId);
+  },
+  // Scans the page for all clickable elements and returns them as a list.
+  // content.js renders the overlay + badges using this data.
+  "list-clickable": async (targetTabId) => {
+    let result = { ok: false, error: "No active tab" };
+    await withActiveTab(async (tab) => {
+      result = await executeInTabWithResult(tab.id, () => {
+        const normalize = (s) =>
+          String(s || "")
+            .toLowerCase()
+            .replace(/\s+/g, " ")
+            .trim();
+
+        const getLabel = (el) =>
+          normalize(
+            el.innerText ||
+              el.value ||
+              el.getAttribute("aria-label") ||
+              el.getAttribute("title") ||
+              el.getAttribute("placeholder") ||
+              el.getAttribute("data-label") ||
+              "",
+          );
+
+        const isVisible = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const style = window.getComputedStyle(el);
+          if (
+            style.display === "none" ||
+            style.visibility === "hidden" ||
+            style.pointerEvents === "none"
+          )
+            return false;
+          const rect = el.getBoundingClientRect();
+          return rect.width > 0 && rect.height > 0;
+        };
+
+        const isInteractableLi = (el) =>
+          el.tagName === "LI" &&
+          (el.hasAttribute("onclick") ||
+            el.hasAttribute("data-action") ||
+            el.getAttribute("tabindex") === "0" ||
+            el.getAttribute("jsaction") ||
+            el.closest("[jsaction]"));
+
+        const candidates = Array.from(
+          document.querySelectorAll(
+            "a, button, [role='button'], [role='option'], [role='menuitem'], [role='tab'], " +
+              "input[type='submit'], input[type='button'], label, summary, li",
+          ),
+        ).filter(
+          (el) =>
+            isVisible(el) && (el.tagName !== "LI" || isInteractableLi(el)),
+        );
+
+        const items = candidates
+          .map((el, i) => {
+            const rect = el.getBoundingClientRect();
+            const label = getLabel(el) || el.tagName.toLowerCase();
+            return {
+              index: i + 1,
+              label,
+              rect: {
+                top: rect.top,
+                left: rect.left,
+                width: rect.width,
+                height: rect.height,
+              },
+            };
+          })
+          .filter((item) => item.label.length > 0)
+          .slice(0, 30);
+
+        return { ok: true, items };
+      });
+    }, targetTabId);
+    return result;
+  },
+  // Tells content.js to close the clickable overlay.
+  "close-list": async (targetTabId) => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        window.dispatchEvent(new CustomEvent("afk:close-clickable-list"));
+      });
+    }, targetTabId);
+  },
+  // Clicks an element by its number from the list-clickable overlay.
+  "click-number": async (targetTabId, payload = {}) => {
+    const clickIndex = Number(payload.clickIndex);
+    if (!clickIndex || clickIndex < 1)
+      return { ok: false, error: "Invalid index" };
+
+    let result = { ok: false, error: "No active tab" };
+    await withActiveTab(async (tab) => {
+      result = await executeInTabWithResult(
+        tab.id,
+        (idx) => {
+          // Try to use stored items from the overlay for accurate targeting
+          const stored = window.__afkClickableItems;
+          if (stored && stored[idx - 1]) {
+            const item = stored[idx - 1];
+            const { top, left, width, height } = item.rect;
+            const centerX = left + width / 2;
+            const centerY = top + height / 2;
+            const el = document.elementFromPoint(centerX, centerY);
+            if (el instanceof HTMLElement) {
+              el.dispatchEvent(
+                new MouseEvent("mousedown", {
+                  bubbles: true,
+                  cancelable: true,
+                }),
+              );
+              el.dispatchEvent(
+                new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+              );
+              el.click();
+              window.dispatchEvent(new CustomEvent("afk:close-clickable-list"));
+              return { ok: true };
+            }
+          }
+
+          // Fallback: re-query the DOM
+          const isVisible = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const style = window.getComputedStyle(el);
+            if (
+              style.display === "none" ||
+              style.visibility === "hidden" ||
+              style.pointerEvents === "none"
+            )
+              return false;
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          };
+
+          const isInteractableLi = (el) =>
+            el.tagName === "LI" &&
+            (el.hasAttribute("onclick") ||
+              el.hasAttribute("data-action") ||
+              el.getAttribute("tabindex") === "0" ||
+              el.getAttribute("jsaction") ||
+              el.closest("[jsaction]"));
+
+          const candidates = Array.from(
+            document.querySelectorAll(
+              "a, button, [role='button'], [role='option'], [role='menuitem'], [role='tab'], " +
+                "input[type='submit'], input[type='button'], label, summary, li",
+            ),
+          ).filter(
+            (el) =>
+              isVisible(el) && (el.tagName !== "LI" || isInteractableLi(el)),
+          );
+
+          const target = candidates[idx - 1];
+          if (!target)
+            return { ok: false, error: `No element at index ${idx}` };
+
+          target.dispatchEvent(
+            new MouseEvent("mousedown", { bubbles: true, cancelable: true }),
+          );
+          target.dispatchEvent(
+            new MouseEvent("mouseup", { bubbles: true, cancelable: true }),
+          );
+          target.click();
+          window.dispatchEvent(new CustomEvent("afk:close-clickable-list"));
+
+          return { ok: true };
+        },
+        [clickIndex],
+      );
+    }, targetTabId);
+    return result;
   },
 };
 
@@ -473,7 +889,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }
 
       const sourceTabId = sender?.tab?.id;
-      const result = await handler(sourceTabId);
+      const result = await handler(sourceTabId, message.payload || {});
       if (result && typeof result === "object" && "ok" in result) {
         sendResponse(result);
         return;
