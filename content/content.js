@@ -18,6 +18,7 @@ const SOURCE = {
 const INITIAL_STATE = {
   enabled: false,
   gesturesEnabled: true,
+  faceAttentionEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
   customKeywords: {},
@@ -29,6 +30,13 @@ let voiceEngine = null;
 let lastFocusedEditable = null;
 let hud = null;
 let debugList = null;
+let debugGestureLog = null;
+let debugFaceLog = null;
+let debugVoiceLog = null;
+let debugGestureStatus = null;
+let debugFaceStatus = null;
+let debugVoiceStatus = null;
+let handCursorDotEl = null;
 let commandToastEl = null;
 let commandToastTimer = null;
 let commandToastSwapTimer = null;
@@ -42,6 +50,7 @@ let eyeAttentionBadgeEl = null;
 let eyeGazeDotEl = null;
 let eyeAttentionSignalSeen = false;
 let eyeAttentionInitTimer = null;
+let lastVideoPresence = null;
 
 function hideCommandToast({ flyUp = false } = {}) {
   if (!commandToastEl) return;
@@ -106,6 +115,43 @@ function updateEyeGazeDot(detail = {}) {
   const y = Number(detail?.normY);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
   const dot = ensureEyeGazeDot();
+  const px = Math.max(0, Math.min(window.innerWidth, x * window.innerWidth));
+  const py = Math.max(0, Math.min(window.innerHeight, y * window.innerHeight));
+  dot.style.left = `${px}px`;
+  dot.style.top = `${py}px`;
+  dot.style.opacity = "1";
+}
+
+function ensureHandCursorDot() {
+  if (handCursorDotEl) return handCursorDotEl;
+  const dot = document.createElement("div");
+  dot.id = "afk-hand-cursor-dot";
+  dot.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    "width:18px",
+    "height:18px",
+    "border-radius:50%",
+    "background:rgba(234,88,12,.85)",
+    "border:2px solid #fff",
+    "box-shadow:0 0 0 2px rgba(234,88,12,.4), 0 0 16px rgba(234,88,12,.5)",
+    "transform:translate(-50%,-50%)",
+    "z-index:2147483647",
+    "pointer-events:none",
+    "opacity:0",
+    "transition:opacity .1s ease",
+  ].join(";");
+  document.documentElement.appendChild(dot);
+  handCursorDotEl = dot;
+  return dot;
+}
+
+function updateHandCursorDot(detail = {}) {
+  const x = Number(detail?.normX);
+  const y = Number(detail?.normY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const dot = ensureHandCursorDot();
   const px = Math.max(0, Math.min(window.innerWidth, x * window.innerWidth));
   const py = Math.max(0, Math.min(window.innerHeight, y * window.innerHeight));
   dot.style.left = `${px}px`;
@@ -185,6 +231,12 @@ function renderEyeAttentionBadge(state, detail = {}) {
 function initDebugPanel() {
   if (document.getElementById("afk-debug-panel")) {
     debugList = document.getElementById("afk-debug-list");
+    debugGestureLog = document.getElementById("afk-debug-gesture");
+    debugFaceLog = document.getElementById("afk-debug-face");
+    debugVoiceLog = document.getElementById("afk-debug-voice");
+    debugGestureStatus = document.getElementById("afk-debug-gesture-status");
+    debugFaceStatus = document.getElementById("afk-debug-face-status");
+    debugVoiceStatus = document.getElementById("afk-debug-voice-status");
     return;
   }
 
@@ -195,8 +247,8 @@ function initDebugPanel() {
     "right:12px",
     "bottom:12px",
     "z-index:2147483647",
-    "width:320px",
-    "max-height:40vh",
+    "width:340px",
+    "max-height:45vh",
     "overflow:hidden",
     "border:1px solid #334155",
     "border-radius:8px",
@@ -206,23 +258,66 @@ function initDebugPanel() {
     "box-shadow:0 10px 25px rgba(0,0,0,.35)",
   ].join(";");
   panel.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-bottom:1px solid #334155;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;border-bottom:1px solid #334155;">
       <strong style="font-size:11px;letter-spacing:.04em;">AFK DEBUG</strong>
-      <button id="afk-debug-clear" style="border:1px solid #334155;background:#0f172a;color:#cbd5e1;border-radius:4px;padding:2px 6px;cursor:pointer;">Clear</button>
+      <button id="afk-debug-clear" style="border:1px solid #334155;background:#0f172a;color:#cbd5e1;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:10px;">Clear</button>
     </div>
-    <div id="afk-debug-list" style="padding:8px 10px;overflow:auto;max-height:calc(40vh - 40px);"></div>
+    <div id="afk-debug-tabs" style="display:flex;gap:0;border-bottom:1px solid #334155;">
+      <button class="afk-dtab afk-dtab--active" data-tab="gesture" style="flex:1;padding:6px 4px;border:none;background:none;color:#e2e8f0;font:600 11px/1 ui-sans-serif,system-ui,sans-serif;cursor:pointer;border-bottom:2px solid #f97316;transition:all .12s;">✋ Gesture</button>
+      <button class="afk-dtab" data-tab="face" style="flex:1;padding:6px 4px;border:none;background:none;color:#64748b;font:600 11px/1 ui-sans-serif,system-ui,sans-serif;cursor:pointer;border-bottom:2px solid transparent;transition:all .12s;">👁 Face</button>
+      <button class="afk-dtab" data-tab="voice" style="flex:1;padding:6px 4px;border:none;background:none;color:#64748b;font:600 11px/1 ui-sans-serif,system-ui,sans-serif;cursor:pointer;border-bottom:2px solid transparent;transition:all .12s;">🎙 Voice</button>
+    </div>
+    <div id="afk-debug-gesture-status" style="padding:4px 10px;font:600 11px/1.3 ui-sans-serif,system-ui,sans-serif;color:#94a3b8;background:rgba(15,23,42,.6);border-bottom:1px solid #1e293b;">Waiting…</div>
+    <div id="afk-debug-face-status" style="padding:4px 10px;font:600 11px/1.3 ui-sans-serif,system-ui,sans-serif;color:#94a3b8;background:rgba(15,23,42,.6);border-bottom:1px solid #1e293b;display:none;">Waiting…</div>
+    <div id="afk-debug-voice-status" style="padding:4px 10px;font:600 11px/1.3 ui-sans-serif,system-ui,sans-serif;color:#94a3b8;background:rgba(15,23,42,.6);border-bottom:1px solid #1e293b;display:none;">Waiting…</div>
+    <div id="afk-debug-gesture" style="padding:6px 10px;overflow:auto;max-height:calc(45vh - 100px);"></div>
+    <div id="afk-debug-face" style="padding:6px 10px;overflow:auto;max-height:calc(45vh - 100px);display:none;"></div>
+    <div id="afk-debug-voice" style="padding:6px 10px;overflow:auto;max-height:calc(45vh - 100px);display:none;"></div>
+    <div id="afk-debug-list" style="display:none;"></div>
   `;
 
   document.documentElement.appendChild(panel);
   debugList = panel.querySelector("#afk-debug-list");
+  debugGestureLog = panel.querySelector("#afk-debug-gesture");
+  debugFaceLog = panel.querySelector("#afk-debug-face");
+  debugVoiceLog = panel.querySelector("#afk-debug-voice");
+  debugGestureStatus = panel.querySelector("#afk-debug-gesture-status");
+  debugFaceStatus = panel.querySelector("#afk-debug-face-status");
+  debugVoiceStatus = panel.querySelector("#afk-debug-voice-status");
 
+  let activeDebugTab = "gesture";
   panel.querySelector("#afk-debug-clear")?.addEventListener("click", () => {
-    if (debugList) debugList.innerHTML = "";
+    const logMap = { gesture: debugGestureLog, face: debugFaceLog, voice: debugVoiceLog };
+    const target = logMap[activeDebugTab];
+    if (target) target.innerHTML = "";
+  });
+
+  const tabs = panel.querySelectorAll(".afk-dtab");
+  const tabColors = { gesture: "#f97316", face: "#22d3ee", voice: "#a78bfa" };
+  tabs.forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.tab;
+      activeDebugTab = target;
+      tabs.forEach((t) => {
+        const isActive = t.dataset.tab === target;
+        t.classList.toggle("afk-dtab--active", isActive);
+        t.style.color = isActive ? "#e2e8f0" : "#64748b";
+        t.style.borderBottomColor = isActive ? (tabColors[t.dataset.tab] || "#e2e8f0") : "transparent";
+      });
+      [debugGestureLog, debugFaceLog, debugVoiceLog].forEach((el) => { if (el) el.style.display = "none"; });
+      [debugGestureStatus, debugFaceStatus, debugVoiceStatus].forEach((el) => { if (el) el.style.display = "none"; });
+      const logMap = { gesture: debugGestureLog, face: debugFaceLog, voice: debugVoiceLog };
+      const statusMap = { gesture: debugGestureStatus, face: debugFaceStatus, voice: debugVoiceStatus };
+      if (logMap[target]) logMap[target].style.display = "";
+      if (statusMap[target]) statusMap[target].style.display = "";
+    });
   });
 }
 
-function debugLog(message, type = "info") {
-  if (!debugList) return;
+const DEBUG_MAX_ENTRIES = 50;
+
+function debugAppendToLog(logEl, message, type = "info") {
+  if (!logEl) return;
   const color =
     type === "error"
       ? "#fca5a5"
@@ -232,10 +327,46 @@ function debugLog(message, type = "info") {
           ? "#86efac"
           : "#93c5fd";
   const item = document.createElement("div");
-  item.style.marginBottom = "6px";
-  item.style.color = color;
-  item.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-  debugList.prepend(item);
+  item.style.cssText = `margin-bottom:4px;color:${color};font-size:11px;line-height:1.4;word-break:break-word;`;
+  const ts = new Date().toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  item.textContent = `[${ts}] ${message}`;
+  logEl.prepend(item);
+  while (logEl.children.length > DEBUG_MAX_ENTRIES) logEl.lastChild.remove();
+}
+
+function debugSetStatus(statusEl, text, color = "#94a3b8") {
+  if (!statusEl) return;
+  statusEl.textContent = text;
+  statusEl.style.color = color;
+}
+
+function debugLogGesture(message, type = "info") {
+  if (!currentState.enabled) return;
+  debugAppendToLog(debugGestureLog, message, type);
+}
+
+function debugLogFace(message, type = "info") {
+  if (!currentState.enabled) return;
+  debugAppendToLog(debugFaceLog, message, type);
+}
+
+function debugLogVoice(message, type = "info") {
+  if (!currentState.enabled) return;
+  debugAppendToLog(debugVoiceLog, message, type);
+}
+
+function debugLog(message, type = "info") {
+  if (!currentState.enabled) return;
+  debugAppendToLog(debugGestureLog, message, type);
+}
+
+function setDebugUIVisible(visible) {
+  const debugPanel = document.getElementById("afk-debug-panel");
+  if (debugPanel) debugPanel.style.display = visible ? "" : "none";
+  const faceVisible = visible && currentState.faceAttentionEnabled !== false && lastVideoPresence === true;
+  if (eyeAttentionBadgeEl) eyeAttentionBadgeEl.style.display = faceVisible ? "" : "none";
+  if (eyeGazeDotEl) eyeGazeDotEl.style.display = faceVisible ? "" : "none";
+  if (handCursorDotEl) handCursorDotEl.style.display = visible ? "" : "none";
 }
 
 function getCommandLabel(action, meta = {}) {
@@ -327,6 +458,13 @@ function mergeState(nextState) {
   currentState = { ...INITIAL_STATE, ...(nextState || {}) };
 }
 
+function checkVideoPresence() {
+  const hasVideo = document.querySelectorAll("video").length > 0;
+  if (hasVideo === lastVideoPresence) return;
+  lastVideoPresence = hasVideo;
+  sendRuntimeMessage({ type: "AFK_VIDEO_PRESENCE", hasVideo }).catch(() => {});
+}
+
 function isAllowedByMode(source) {
   if (source === SOURCE.GESTURE) return currentState.gesturesEnabled;
   if (source === SOURCE.VOICE) return currentState.voiceEnabled;
@@ -337,6 +475,12 @@ function isAllowedByMode(source) {
 function isVoiceCaptureAllowedInThisTab() {
   // Avoid multiple tabs competing for SpeechRecognition.
   return document.visibilityState === "visible" && document.hasFocus();
+}
+
+function forwardVoiceDebug(kind, text) {
+  try {
+    chrome.runtime.sendMessage({ type: "AFK_VOICE_DEBUG", detail: { kind, text } }).catch(() => {});
+  } catch {}
 }
 
 async function sendRuntimeMessage(message) {
@@ -353,31 +497,28 @@ async function emitCommand(source, action, meta = {}) {
   if (!action || typeof action !== "string") return;
 
   const payload = { source, action, ...meta };
-  debugLog(`command -> ${source}:${action}`);
+  const logFn = source === SOURCE.VOICE ? debugLogVoice : source === SOURCE.SYSTEM ? debugLogFace : debugLogGesture;
+  logFn(`command -> ${action}`);
   const result = await sendRuntimeMessage({ type: CHANNEL.COMMAND, payload });
 
   if (result?.ok && !result?.skipped) {
-    // For list-clickable, render the overlay with returned items.
     if (action === "list-clickable" && Array.isArray(result.items)) {
       showClickableOverlay(result.items);
     }
     hud?.showFeedback?.({ action, source, labelText: meta?.labelText });
     showCommandToast(action, source, meta);
     const matchedLabel = result.matched ? ` -> "${result.matched}"` : "";
-    debugLog(`command ok <- ${action}${matchedLabel}`, "ok");
+    logFn(`command ok <- ${action}${matchedLabel}`, "ok");
     return;
   }
 
   if (result?.skipped) {
-    debugLog(
-      `command skipped <- ${action} (${result.reason || "unknown"})`,
-      "warn",
-    );
+    logFn(`command skipped <- ${action} (${result.reason || "unknown"})`, "warn");
     console.info("[AFK] Command skipped:", result.reason || "unknown");
     return;
   }
 
-  debugLog(
+  logFn(
     `command failed <- ${action}${meta?.labelText ? ` ("${meta.labelText}")` : ""} (${result?.error || "unknown error"})`,
     "error",
   );
@@ -403,7 +544,7 @@ async function maybePauseOnAttentionLost(reason = "attention-lost") {
 
   await emitCommand(SOURCE.SYSTEM, "video-pause", { reason });
   attentionAutoPaused = true;
-  debugLog("attention auto-pause: video paused", "warn");
+  debugLogFace("auto-pause: video paused", "warn");
 }
 
 async function maybeResumeOnAttentionBack(reason = "attention-back") {
@@ -412,7 +553,7 @@ async function maybeResumeOnAttentionBack(reason = "attention-back") {
 
   await emitCommand(SOURCE.SYSTEM, "video-play", { reason });
   attentionAutoPaused = false;
-  debugLog("attention auto-resume: video resumed", "ok");
+  debugLogFace("auto-resume: video resumed", "ok");
 }
 
 function handleEyeAttentionEvent(eventName, detail = {}) {
@@ -421,7 +562,8 @@ function handleEyeAttentionEvent(eventName, detail = {}) {
   if (eventName === "attention:look-away") {
     eyeAttentionState = "away";
     renderEyeAttentionBadge("away", detail);
-    debugLog("eye attention: look-away", "warn");
+    debugLogFace("look-away", "warn");
+    debugSetStatus(debugFaceStatus, "AWAY — user not looking", "#fca5a5");
     if (eyeBackDebounceTimer) {
       clearTimeout(eyeBackDebounceTimer);
       eyeBackDebounceTimer = null;
@@ -437,7 +579,8 @@ function handleEyeAttentionEvent(eventName, detail = {}) {
   if (eventName === "attention:look-at") {
     eyeAttentionState = "looking";
     renderEyeAttentionBadge("looking", detail);
-    debugLog("eye attention: look-at", "ok");
+    debugLogFace("look-at", "ok");
+    debugSetStatus(debugFaceStatus, "LOOKING — user engaged", "#86efac");
     if (eyeAwayDebounceTimer) {
       clearTimeout(eyeAwayDebounceTimer);
       eyeAwayDebounceTimer = null;
@@ -476,15 +619,17 @@ function handleEyeAttentionStatus(detail = {}) {
     if (eyeGazeDotEl) eyeGazeDotEl.style.opacity = "0";
   }
   if (state === "unsupported") {
-    debugLog(
-      `eye attention unsupported: ${detail?.reason || "unknown"}`,
-      "warn",
-    );
+    debugLogFace(`unsupported: ${detail?.reason || "unknown"}`, "warn");
+    debugSetStatus(debugFaceStatus, `Unsupported: ${detail?.reason || ""}`, "#fdba74");
   } else if (state === "ready") {
-    debugLog(
-      `eye attention ready: ${detail?.engine || "unknown engine"}`,
-      "ok",
-    );
+    debugLogFace(`engine ready: ${detail?.engine || "unknown"}`, "ok");
+    debugSetStatus(debugFaceStatus, `Ready (${detail?.engine || "unknown"})`, "#86efac");
+  } else if (state === "no-face") {
+    debugSetStatus(debugFaceStatus, "No face detected", "#fca5a5");
+  } else if (state === "face-detected") {
+    debugSetStatus(debugFaceStatus, "Face detected", "#93c5fd");
+  } else if (state === "face-uncertain") {
+    debugSetStatus(debugFaceStatus, "Face uncertain", "#93c5fd");
   } else if (
     state === "mesh-send" ||
     state === "mesh-send-ok" ||
@@ -496,27 +641,21 @@ function handleEyeAttentionStatus(detail = {}) {
         ? ` (points=${detail.points})`
         : "";
     const type = state === "mesh-send-failed" ? "error" : "info";
-    debugLog(`eye attention ${state}${extra}`, type);
+    debugLogFace(`${state}${extra}`, type);
   }
 }
 
 function handleAttentionAction(detail = {}) {
   const action = detail?.action || detail?.eventName || "attention";
   if (detail?.ok === false) {
-    debugLog(
-      `attention action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`,
-      "error",
-    );
+    debugLogFace(`action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`, "error");
     return;
   }
   if (detail?.skipped) {
-    debugLog(
-      `attention action skipped: ${action} (${detail?.reason || "unknown"})`,
-      "warn",
-    );
+    debugLogFace(`action skipped: ${action} (${detail?.reason || "unknown"})`, "warn");
     return;
   }
-  debugLog(`attention action ok: ${action}`, "ok");
+  debugLogFace(`action ok: ${action}`, "ok");
 }
 
 // ── Clickable overlay ──────────────────────────────────────────────────────
@@ -574,6 +713,8 @@ function updateRuntimeModules() {
     Boolean(currentState.voiceEnabled) &&
     isVoiceCaptureAllowedInThisTab();
   const cameraActive = gesturesEnabled;
+
+  setDebugUIVisible(enabled);
 
   if (gestureEngine?.setEnabled) {
     gestureEngine.setEnabled(gesturesEnabled);
@@ -641,33 +782,28 @@ async function initVoiceEngine() {
   voiceEngine = factory({
     onCommand: (action, meta) => {
       const transcript = String(meta?.transcript || "");
-      if (transcript) debugLog(`voice heard: "${transcript}"`);
-      debugLog(
-        `voice parsed: ${action}${meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : ""}`,
-      );
-      if (action === "dictate-start") {
-        if (lastFocusedEditable)
-          voiceEngine?.setDictationTarget?.(lastFocusedEditable);
-        return;
-      }
-      if (action === "dictate-stop") {
-        voiceEngine?.setDictationTarget?.(null);
-        return;
-      }
+      if (transcript) debugLogVoice(`heard: "${transcript}"`);
+      const extra = meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : "";
+      debugLogVoice(`command: ${action}${extra}`, "ok");
+      debugSetStatus(debugVoiceStatus, `Command: ${action}${extra}`, "#86efac");
       emitCommand(SOURCE.VOICE, action, meta);
     },
     onTranscript: (text, meta) => {
       const cleaned = String(text || "").trim();
       if (!cleaned) return;
-      const prefix = meta?.committed ? "voice final" : "voice partial";
+      const prefix = meta?.committed ? "final" : "partial";
       const line = `${prefix}: "${cleaned}"`;
       if (line === lastTranscriptLog) return;
       lastTranscriptLog = line;
-      debugLog(line);
+      debugLogVoice(line);
+      debugSetStatus(debugVoiceStatus, `Hearing: "${cleaned}"`, "#93c5fd");
+      forwardVoiceDebug("transcript", cleaned);
     },
     onStatus: (status) => {
       hud?.setVoiceStatus?.(status);
-      debugLog(`voice status: ${status}`);
+      debugLogVoice(`status: ${status}`);
+      debugSetStatus(debugVoiceStatus, `Voice: ${status}`, "#94a3b8");
+      forwardVoiceDebug("status", `Voice: ${status}`);
     },
   });
 }
@@ -885,20 +1021,74 @@ function executePageCommand(action, meta = {}) {
 }
 
 function initBackgroundStateListener() {
+  let lastCursorStatusMs = 0;
+
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "gesture") {
       const eventName = message?.event;
-      if (
-        eventName === "attention:look-away" ||
-        eventName === "attention:look-at"
-      ) {
-        handleEyeAttentionEvent(eventName, message?.detail || {});
+      const detail = message?.detail || {};
+
+      // -- Hand gesture events --
+      if (eventName === "gesture:cursor") {
+        updateHandCursorDot(detail);
+        const now = Date.now();
+        if (now - lastCursorStatusMs > 400) {
+          lastCursorStatusMs = now;
+          debugSetStatus(debugGestureStatus, `Cursor: (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`, "#86efac");
+        }
+        return;
+      }
+      if (eventName === "gesture:none") {
+        if (handCursorDotEl) handCursorDotEl.style.opacity = "0";
+        debugSetStatus(debugGestureStatus, "No hand detected", "#fca5a5");
+        debugLogGesture("no hand detected", "warn");
+        return;
+      }
+      if (eventName === "gesture:scroll") {
+        debugLogGesture(`scroll dx=${(detail.dx ?? 0).toFixed(1)} dy=${(detail.dy ?? 0).toFixed(1)}`);
+        debugSetStatus(debugGestureStatus, "Scrolling", "#93c5fd");
+        return;
+      }
+      if (eventName === "gesture:click") {
+        debugLogGesture(`click (${(detail.normX ?? 0).toFixed(2)}, ${(detail.normY ?? 0).toFixed(2)})`, "ok");
+        debugSetStatus(debugGestureStatus, "Click", "#86efac");
+        return;
+      }
+      if (eventName === "gesture:closetab") {
+        debugLogGesture("close tab (clap)", "ok");
+        debugSetStatus(debugGestureStatus, "Close Tab", "#86efac");
+        return;
+      }
+      if (eventName === "gesture:tabswitch:start") {
+        debugLogGesture("tab switch started");
+        debugSetStatus(debugGestureStatus, "Tab Switch…", "#93c5fd");
+        return;
+      }
+      if (eventName === "gesture:tabswitch:end") {
+        const dir = (detail.normDx ?? 0) > 0 ? "right" : "left";
+        debugLogGesture(`tab switch ${dir}`, "ok");
+        debugSetStatus(debugGestureStatus, `Tab Switch ${dir}`, "#86efac");
+        return;
+      }
+      if (eventName === "gesture:navigate") {
+        debugLogGesture(`navigate ${detail.direction || ""}`, "ok");
+        debugSetStatus(debugGestureStatus, `Navigate ${detail.direction || ""}`, "#86efac");
+        return;
+      }
+      if (typeof eventName === "string" && eventName.startsWith("gesture:drag")) {
+        debugLogGesture(eventName.replace("gesture:", ""));
+        return;
+      }
+
+      // -- Face attention events --
+      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
+        handleEyeAttentionEvent(eventName, detail);
       } else if (eventName === "attention:status") {
-        handleEyeAttentionStatus(message?.detail || {});
+        handleEyeAttentionStatus(detail);
       } else if (eventName === "attention:gaze") {
-        updateEyeGazeDot(message?.detail || {});
+        updateEyeGazeDot(detail);
       } else if (eventName === "attention:action") {
-        handleAttentionAction(message?.detail || {});
+        handleAttentionAction(detail);
       }
       return;
     }
@@ -999,21 +1189,29 @@ async function bootstrap() {
       renderEyeAttentionBadge("unsupported", {
         reason: "no attention events from offscreen",
       });
-      debugLog("eye attention: no events received from offscreen", "warn");
+      debugLogFace("no events received from offscreen", "warn");
+      debugSetStatus(debugFaceStatus, "No attention events", "#fdba74");
     }
   }, 5000);
-  debugLog("content script boot");
-  await Promise.all([initHud(), initVoiceEngine()]);
+   debugLogGesture("content script boot");
+  debugLogFace("content script boot");
+  debugLogVoice("content script boot");
+  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();
   initTabActivityListeners();
   await syncInitialState();
   await syncInitialAttentionStatus();
-  debugLog(
-    `state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`,
-  );
+  debugLogGesture(`state: enabled=${currentState.enabled} gestures=${currentState.gesturesEnabled}`);
+  debugLogFace(`state: enabled=${currentState.enabled} face=${currentState.faceAttentionEnabled}`);
+  debugLogVoice(`state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`);
   updateRuntimeModules();
+  checkVideoPresence();
+  new MutationObserver(() => checkVideoPresence()).observe(
+    document.documentElement,
+    { childList: true, subtree: true },
+  );
 }
 
 // Receives gesture messages from the service worker (relayed from offscreen.js)

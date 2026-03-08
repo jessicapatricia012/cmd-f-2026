@@ -2,209 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>AFK — Popup Preview</title>
-  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet" />
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --c-bg:           #090d15;
-      --c-surface:      #111820;
-      --c-border:       rgba(0, 255, 224, 0.12);
-      --c-accent:       #00ffe0;
-      --c-text:         #d0e0ec;
-      --c-text-dim:     rgba(208, 224, 236, 0.45);
-      --c-red:          #ff4466;
-      --font-mono:      'Share Tech Mono', monospace;
-      --font-ui:        'Rajdhani', sans-serif;
-    }
-
-    body {
-      width: 300px;
-      background: #060a10;
-      color: var(--c-text);
-      font-family: var(--font-ui);
-      font-size: 14px;
-      line-height: 1.4;
-      -webkit-font-smoothing: antialiased;
-      margin: 32px auto;
-      border-radius: 16px;
-      box-shadow: 0 0 0 1px rgba(0,255,224,0.15), 0 24px 60px rgba(0,0,0,0.8);
-      overflow: hidden;
-    }
-
-    .popup-root { display: flex; flex-direction: column; animation: popup-in 0.25s ease; }
-
-    /* ── Header ── */
-    .popup-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 13px 16px 11px;
-      border-bottom: 1px solid var(--c-border);
-      background: linear-gradient(180deg, rgba(0,255,224,0.05) 0%, transparent 100%);
-      position: relative;
-    }
-    .popup-header::after {
-      content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
-      background: linear-gradient(90deg, transparent, var(--c-accent), transparent); opacity: 0.35;
-    }
-    .popup-logo { display: flex; flex-direction: column; gap: 1px; }
-    .popup-logo__text { font-family: var(--font-mono); font-size: 17px; letter-spacing: 0.3em; color: var(--c-accent); line-height: 1; text-shadow: 0 0 12px rgba(0,255,224,0.6); }
-    .popup-logo__tag { font-size: 9px; letter-spacing: 0.15em; color: var(--c-text-dim); text-transform: uppercase; font-family: var(--font-mono); }
-    .popup-version { font-family: var(--font-mono); font-size: 9px; color: var(--c-text-dim); letter-spacing: 0.1em; border: 1px solid var(--c-border); padding: 2px 6px; border-radius: 3px; }
-
-    /* ── Toggle section ── */
-    .popup-toggle-section { padding: 14px 16px 12px; display: flex; align-items: center; justify-content: space-between; }
-    .popup-toggle-info { display: flex; flex-direction: column; gap: 2px; }
-    .popup-toggle-label { font-size: 15px; font-weight: 700; letter-spacing: 0.06em; color: var(--c-text); text-transform: uppercase; }
-    .popup-toggle-status { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); text-transform: uppercase; transition: color 0.3s; }
-    .popup-toggle-status.is-on { color: var(--c-accent); }
-
-    .toggle-btn { background: none; border: none; cursor: pointer; padding: 0; position: relative; }
-    .toggle-btn__track { display: block; width: 52px; height: 28px; background: var(--c-surface); border: 1.5px solid rgba(255,255,255,0.08); border-radius: 14px; position: relative; transition: background 0.3s, border-color 0.3s; }
-    .toggle-btn[aria-checked="true"] .toggle-btn__track { background: rgba(0,255,224,0.12); border-color: var(--c-accent); }
-    .toggle-btn__thumb { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: var(--c-text-dim); transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1), background 0.3s; z-index: 1; }
-    .toggle-btn[aria-checked="true"] .toggle-btn__thumb { transform: translateX(24px); background: var(--c-accent); box-shadow: 0 0 8px var(--c-accent); }
-    .toggle-btn__glow { position: absolute; inset: -4px; border-radius: 16px; background: radial-gradient(ellipse, rgba(0,255,224,0.25) 0%, transparent 70%); opacity: 0; transition: opacity 0.3s; pointer-events: none; }
-    .toggle-btn[aria-checked="true"] .toggle-btn__glow { opacity: 1; animation: toggle-glow-pulse 2s ease-in-out infinite; }
-
-    /* ── Divider ── */
-    .popup-divider { height: 1px; background: var(--c-border); margin: 0 16px; }
-
-    /* ── Camera section ── */
-    .popup-camera { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 9px; }
-
-    .cam-header { display: flex; align-items: center; justify-content: space-between; }
-    .popup-section-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); }
-
-    .cam-indicator { display: flex; align-items: center; gap: 6px; }
-    .cam-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-text-dim); flex-shrink: 0; transition: background 0.3s, box-shadow 0.3s; }
-    .cam-dot.is-live { background: var(--c-red); box-shadow: 0 0 6px var(--c-red); animation: cam-pulse 1.5s ease-in-out infinite; }
-    .cam-indicator-label { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-dim); text-transform: uppercase; transition: color 0.3s; }
-    .cam-indicator-label.is-live { color: var(--c-red); }
-
-    /* Feed box */
-    .cam-feed-wrap {
-      position: relative; width: 100%; aspect-ratio: 4/3;
-      border-radius: 9px; overflow: hidden;
-      background: #05080f; border: 1px solid var(--c-border);
-      transition: border-color 0.3s;
-    }
-    .cam-feed-wrap.is-live { border-color: rgba(255,68,102,0.35); }
-
-    video#cam-preview { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); opacity: 0; transition: opacity 0.4s; }
-    video#cam-preview.visible { opacity: 1; }
-
-    /* HUD scanlines overlay */
-    .cam-feed-wrap::before {
-      content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
-      background:
-        repeating-linear-gradient(0deg, transparent, transparent 11px, rgba(0,255,224,0.025) 12px),
-        repeating-linear-gradient(90deg, transparent, transparent 11px, rgba(0,255,224,0.025) 12px);
-    }
-
-    /* Corner bracket decoration */
-    .cam-corners { position: absolute; inset: 7px; z-index: 3; pointer-events: none; }
-    .cam-corners::before, .cam-corners::after,
-    .cam-corners span::before, .cam-corners span::after {
-      content: ''; position: absolute; width: 13px; height: 13px;
-      border-color: var(--c-accent); border-style: solid; opacity: 0.55;
-    }
-    .cam-corners::before  { top:0; left:0;  border-width: 2px 0 0 2px; }
-    .cam-corners::after   { top:0; right:0; border-width: 2px 2px 0 0; }
-    .cam-corners span::before { bottom:0; left:0;  border-width: 0 0 2px 2px; }
-    .cam-corners span::after  { bottom:0; right:0; border-width: 0 2px 2px 0; }
-
-    /* Scan sweep line */
-    .cam-scan-line { position: absolute; left: 0; right: 0; height: 2px; z-index: 4; background: linear-gradient(90deg, transparent, var(--c-accent), transparent); opacity: 0; top: 0; pointer-events: none; }
-    .cam-feed-wrap.is-live .cam-scan-line { opacity: 0.55; animation: scan-sweep 2.6s ease-in-out infinite; }
-
-    /* Placeholder */
-    .cam-placeholder { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; transition: opacity 0.3s; }
-    .cam-placeholder.hidden { opacity: 0; pointer-events: none; }
-    .cam-placeholder__icon { font-size: 28px; opacity: 0.2; }
-    .cam-placeholder__text { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.1em; color: var(--c-text-dim); text-transform: uppercase; text-align: center; padding: 0 20px; line-height: 1.6; }
-
-    /* Gesture overlay label */
-    .cam-gesture-label { position: absolute; bottom: 9px; left: 50%; transform: translateX(-50%); z-index: 5; font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.12em; color: var(--c-accent); background: rgba(0,0,0,0.6); padding: 3px 10px; border-radius: 4px; border: 1px solid rgba(0,255,224,0.2); opacity: 0; transition: opacity 0.2s; text-transform: uppercase; white-space: nowrap; }
-    .cam-gesture-label.show { opacity: 1; }
-
-    /* Start camera button */
-    .cam-start-btn { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; padding: 8px 0; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 7px; cursor: pointer; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.12em; color: var(--c-text-dim); text-transform: uppercase; transition: border-color 0.2s, color 0.2s; }
-    .cam-start-btn:hover { border-color: rgba(0,255,224,0.35); color: var(--c-accent); }
-    .cam-start-btn.hidden { display: none; }
-
-    /* ── Feature rows ── */
-    .popup-features { padding: 12px 16px; display: flex; flex-direction: column; }
-    .features-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); margin-bottom: 10px; }
-    .feature-row { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
-    .feature-row:last-child { border-bottom: none; }
-    .feature-row__icon { font-size: 15px; width: 22px; text-align: center; flex-shrink: 0; }
-    .feature-row__info { flex: 1; display: flex; flex-direction: column; gap: 1px; }
-    .feature-row__name { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; color: var(--c-text); }
-    .feature-row__desc { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.06em; color: var(--c-text-dim); }
-
-    .mini-toggle { background: none; border: none; cursor: pointer; padding: 0; flex-shrink: 0; }
-    .mini-toggle__track { display: block; width: 36px; height: 20px; background: var(--c-surface); border: 1.5px solid rgba(255,255,255,0.08); border-radius: 10px; position: relative; transition: background 0.3s, border-color 0.3s; }
-    .mini-toggle[aria-checked="true"] .mini-toggle__track { background: rgba(0,255,224,0.12); border-color: var(--c-accent); }
-    .mini-toggle__thumb { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--c-text-dim); transition: transform 0.25s cubic-bezier(0.34,1.56,0.64,1), background 0.3s; }
-    .mini-toggle[aria-checked="true"] .mini-toggle__thumb { transform: translateX(16px); background: var(--c-accent); box-shadow: 0 0 6px rgba(0,255,224,0.7); }
-
-    /* ── Voice keywords editor ── */
-    .popup-keywords { padding: 12px 16px 14px; display: flex; flex-direction: column; gap: 8px; }
-    .keywords-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); }
-    .keywords-help { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em; color: var(--c-text-dim); line-height: 1.5; }
-    .keywords-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow: auto; padding-right: 2px; }
-    .keyword-row { display: grid; grid-template-columns: 86px 1fr; gap: 6px; align-items: center; }
-    .keyword-label { font-family: var(--font-mono); font-size: 8.5px; color: var(--c-text-dim); text-transform: uppercase; letter-spacing: 0.06em; }
-    .keyword-input {
-      width: 100%;
-      padding: 6px 8px;
-      border-radius: 6px;
-      border: 1px solid var(--c-border);
-      background: var(--c-surface);
-      color: var(--c-text);
-      font-family: var(--font-mono);
-      font-size: 9px;
-      line-height: 1.3;
-    }
-    .keywords-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-    .keywords-save {
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--c-border);
-      background: rgba(0,255,224,0.08);
-      color: var(--c-text);
-      font-family: var(--font-mono);
-      font-size: 9px;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-      cursor: pointer;
-    }
-    .keywords-save:hover { border-color: rgba(0,255,224,0.35); color: var(--c-accent); }
-    .keywords-status { font-family: var(--font-mono); font-size: 8.5px; color: var(--c-text-dim); }
-
-    /* ── Gesture reference ── */
-    .popup-gestures { padding: 12px 16px 14px; }
-    .gesture-list-title { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--c-text-dim); margin-bottom: 9px; }
-    .gesture-list { display: flex; flex-direction: column; gap: 5px; }
-    .gesture-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: 7px; transition: border-color 0.2s; }
-    .gesture-item:hover { border-color: rgba(0,255,224,0.28); }
-    .gesture-item__glyph { font-size: 15px; width: 20px; text-align: center; flex-shrink: 0; }
-    .gesture-item__body { display: flex; flex-direction: column; gap: 1px; flex: 1; }
-    .gesture-item__action { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; color: var(--c-text); }
-    .gesture-item__how { font-family: var(--font-mono); font-size: 8.5px; letter-spacing: 0.04em; color: var(--c-text-dim); line-height: 1.4; }
-
-    /* ── Footer ── */
-    .popup-footer { padding: 9px 16px 13px; text-align: center; border-top: 1px solid var(--c-border); }
-    .popup-footer__hint { font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--c-text-dim); }
-    kbd { display: inline-block; padding: 1px 5px; background: var(--c-surface); border: 1px solid rgba(255,255,255,0.1); border-radius: 3px; font-family: var(--font-mono); font-size: 9px; color: var(--c-text); }
-
-    /* ── Keyframes ── */
-    @keyframes popup-in { from{opacity:0;transform:translateY(6px) scale(0.97)}to{opacity:1;transform:none} }
-    @keyframes toggle-glow-pulse { 0%,100%{opacity:0.6}50%{opacity:1} }
-    @keyframes cam-pulse { 0%,100%{box-shadow:0 0 4px var(--c-red)}50%{box-shadow:0 0 10px var(--c-red),0 0 20px rgba(255,68,102,0.4)} }
-    @keyframes scan-sweep { 0%{top:0%;opacity:0}8%{opacity:0.55}92%{opacity:0.55}100%{top:100%;opacity:0} }
-  </style>
+  <title>AFK</title>
+  <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <div class="popup-root">
@@ -212,67 +11,41 @@
     <!-- Header -->
     <header class="popup-header">
       <div class="popup-logo">
-        <span class="popup-logo__text">AFK</span>
-        <span class="popup-logo__tag">Hands-Free Browser</span>
+        <div class="popup-logo__icon">
+          <!-- Hand / gesture icon -->
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M18 11V7a2 2 0 0 0-4 0v4"/>
+            <path d="M14 10V5a2 2 0 0 0-4 0v5"/>
+            <path d="M10 9.5V4a2 2 0 0 0-4 0v10l-1-1a2 2 0 0 0-2.73 2.92l3.23 3.58A8 8 0 0 0 8 22h6a7 7 0 0 0 7-7v-5a2 2 0 0 0-4 0"/>
+          </svg>
+        </div>
+        <div class="popup-logo__wordmark">
+          <span class="popup-logo__text">AFK</span>
+          <span class="popup-logo__tag">Hands-Free Browser</span>
+        </div>
       </div>
       <div class="popup-version">v1.0</div>
     </header>
 
     <!-- Main toggle -->
     <section class="popup-toggle-section">
-      <div class="popup-toggle-info">
-        <span class="popup-toggle-label">Extension</span>
-        <span class="popup-toggle-status" id="status-text">Disabled</span>
+      <div class="popup-toggle-wrap">
+        <div class="popup-toggle-info">
+          <span class="popup-toggle-label">Extension</span>
+          <span class="popup-toggle-status" id="status-text">Disabled</span>
+        </div>
+        <button class="toggle-btn" id="main-toggle" role="switch" aria-checked="false" aria-label="Enable AFK extension">
+          <span class="toggle-btn__track">
+            <span class="toggle-btn__thumb"></span>
+          </span>
+        </button>
       </div>
-      <button class="toggle-btn" id="main-toggle" role="switch" aria-checked="false" aria-label="Enable AFK extension">
-        <span class="toggle-btn__track">
-          <span class="toggle-btn__thumb"></span>
-          <span class="toggle-btn__glow"></span>
-        </span>
-      </button>
     </section>
 
-    <div class="popup-divider"></div>
-
-    <!-- Camera feed -->
-    <section class="popup-camera">
-      <div class="cam-header">
-        <p class="popup-section-title">Camera</p>
-        <div class="cam-indicator">
-          <span class="cam-dot" id="cam-dot"></span>
-          <span class="cam-indicator-label" id="cam-label">Off</span>
-        </div>
-      </div>
-      <!-- Shown when camera permission is blocked -->
-      <section class="camera-help" id="camera-help" style="display:none;">
-        <p>Camera access was blocked. To fix:</p>
-        <button id="btn-open-tab">Grant permission in new tab</button>
-        <button id="btn-open-settings">Open Chrome camera settings</button>
-      </section>
-
-      <div class="cam-feed-wrap" id="cam-feed-wrap">
-        <div class="cam-scan-line"></div>
-        <div class="cam-corners"><span></span></div>
-
-        <div class="cam-placeholder" id="cam-placeholder">
-          <span class="cam-placeholder__icon">📷</span>
-          <span class="cam-placeholder__text">Enable extension or click below to preview camera</span>
-        </div>
-
-        <video id="cam-preview" autoplay playsinline muted></video>
-        <div class="cam-gesture-label" id="gesture-label"></div>
-      </div>
-
-      <button class="cam-start-btn" id="cam-start-btn">
-        ⬤&nbsp; Start Camera Preview
-      </button>
-    </section>
-
-    <div class="popup-divider"></div>
-
+    <div id="popup-body" style="display:none">
     <!-- Feature toggles -->
     <section class="popup-features">
-      <p class="features-title">Features</p>
+      <p class="popup-section-title">Features</p>
       <div class="feature-row">
         <div class="feature-row__icon">✋</div>
         <div class="feature-row__info">
@@ -284,10 +57,20 @@
         </button>
       </div>
       <div class="feature-row">
+        <div class="feature-row__icon">👁</div>
+        <div class="feature-row__info">
+          <span class="feature-row__name">Face Auto-Pause</span>
+          <span class="feature-row__desc">Pause/resume video when you look away</span>
+        </div>
+        <button class="mini-toggle" id="toggle-face" role="switch" aria-checked="true" aria-label="Toggle face auto-pause">
+          <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+        </button>
+      </div>
+      <div class="feature-row">
         <div class="feature-row__icon">🎙</div>
         <div class="feature-row__info">
           <span class="feature-row__name">Voice Commands</span>
-          <span class="feature-row__desc">Say commands like "AFK page down"</span>
+          <span class="feature-row__desc">Say "AFK page down", "AFK pause"…</span>
         </div>
         <button class="mini-toggle" id="toggle-voice" role="switch" aria-checked="true" aria-label="Toggle voice commands">
           <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
@@ -297,7 +80,7 @@
         <div class="feature-row__icon">🧠</div>
         <div class="feature-row__info">
           <span class="feature-row__name">Require "AFK" Wake Word</span>
-          <span class="feature-row__desc">Strict mode for fewer false triggers</span>
+          <span class="feature-row__desc">Fewer false triggers in strict mode</span>
         </div>
         <button class="mini-toggle" id="toggle-wakeword" role="switch" aria-checked="true" aria-label="Require AFK wake word">
           <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
@@ -307,79 +90,97 @@
 
     <div class="popup-divider"></div>
 
-    <!-- Voice keyword editor -->
-    <section class="popup-keywords">
-      <p class="keywords-title">Voice Keywords</p>
-      <p class="keywords-help">Format: <code>action: phrase one, phrase two</code></p>
-      <div id="keywords-list" class="keywords-list"></div>
-      <div class="keywords-actions">
-        <button id="save-keywords" class="keywords-save">Save Keywords</button>
-        <span id="keywords-status" class="keywords-status">Using defaults</span>
+    <!-- Voice Keywords — accordion -->
+    <div class="accordion">
+      <button class="accordion__header" aria-expanded="false" aria-controls="acc-keywords">
+        <span class="accordion__icon">🎙</span>
+        <span class="accordion__label">Voice Keywords</span>
+        <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+          <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="accordion__body" id="acc-keywords">
+        <div class="accordion__inner">
+          <p class="keywords-help">Format: <code>action: phrase one, phrase two</code></p>
+          <div id="keywords-list" class="keywords-list"></div>
+          <div class="keywords-actions">
+            <button id="save-keywords" class="keywords-save">Save Keywords</button>
+            <span id="keywords-status" class="keywords-status">Using defaults</span>
+          </div>
+        </div>
       </div>
-    </section>
+    </div>
 
     <div class="popup-divider"></div>
 
-    <!-- Gesture reference -->
-    <section class="popup-gestures">
-      <p class="gesture-list-title">Gesture Reference</p>
-      <div class="gesture-list">
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">☝️</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Cursor</span>
-            <span class="gesture-item__how">Index finger tracks position</span>
+    <!-- Gesture Reference — accordion -->
+    <div class="accordion">
+      <button class="accordion__header" aria-expanded="false" aria-controls="acc-gestures">
+        <span class="accordion__icon">✋</span>
+        <span class="accordion__label">Gesture Reference</span>
+        <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+          <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div class="accordion__body" id="acc-gestures">
+        <div class="accordion__inner">
+          <div class="gesture-list">
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">☝️</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Cursor</span>
+                <span class="gesture-item__how">Index finger tracks position</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">🤌</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Click</span>
+                <span class="gesture-item__how">Quick pinch index + middle</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">👆</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Select &amp; Drag</span>
+                <span class="gesture-item__how">Pinch then drag</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">✌️</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Scroll</span>
+                <span class="gesture-item__how">Flick index + middle up / down</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">🖐️</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Zoom In / Out</span>
+                <span class="gesture-item__how">Open palm = in · Close fist = out</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">🤞</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Tab Switch</span>
+                <span class="gesture-item__how">Double pinch + drag left / right</span>
+              </div>
+            </div>
+            <div class="gesture-item">
+              <span class="gesture-item__glyph">👋</span>
+              <div class="gesture-item__body">
+                <span class="gesture-item__action">Back / Forward</span>
+                <span class="gesture-item__how">Swipe open palm left / right</span>
+              </div>
+            </div>
           </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">🤌</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Click</span>
-            <span class="gesture-item__how">Pinch index + middle finger</span>
-          </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">👆</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Select & Drag</span>
-            <span class="gesture-item__how">Pinch index + middle, then drag</span>
-          </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">✌️</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Scroll</span>
-            <span class="gesture-item__how">Flick index + middle up / down / left / right</span>
-          </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">🖐️</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Zoom In / Out</span>
-            <span class="gesture-item__how">Open palm = in · Close palm = out</span>
-          </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">🤞</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Tab Switch</span>
-            <span class="gesture-item__how">Double pinch → hold + drag left/right → release</span>
-          </div>
-        </div>
-        <div class="gesture-item">
-          <span class="gesture-item__glyph">👋</span>
-          <div class="gesture-item__body">
-            <span class="gesture-item__action">Back / Forward</span>
-            <span class="gesture-item__how">Swipe whole palm left / right</span>
-          </div>
-        </div>
-      </div>
-    </section>
+    </div>
+    </div>
+    </div>
 
-    <footer class="popup-footer">
-      <span class="popup-footer__hint">Press <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> to toggle</span>
-    </footer>
-  </div>
+    </div><!-- /#popup-body -->
+  </div><!-- /.popup-root -->
 
   <script src="popup.js"></script>
 </body>

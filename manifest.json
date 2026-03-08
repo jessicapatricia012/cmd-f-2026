@@ -40,7 +40,10 @@
     "128": "assets/icons/icon128.png"
   },
   "sandbox": {
-    "pages": ["offscreen/face-mesh-sandbox.html"]
+    "pages": [
+      "offscreen/face-mesh-sandbox.html",
+      "offscreen/hands-sandbox.html"
+    ]
   },
   "web_accessible_resources": [
     {
