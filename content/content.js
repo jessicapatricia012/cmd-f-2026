@@ -113,6 +113,7 @@ function getCommandLabel(action, meta = {}) {
     "fullscreen-exit": "Exit Fullscreen",
     "press-key": meta?.keyLabel ? `Press ${meta.keyLabel}` : "Press Key",
     "click-target": "Click Target",
+    "click-text": meta?.labelText ? `Click: ${meta.labelText}` : "Click",
   };
   return labels[action] || action;
 }
@@ -200,7 +201,7 @@ async function emitCommand(source, action, meta = {}) {
   const result = await sendRuntimeMessage({ type: CHANNEL.COMMAND, payload });
 
   if (result?.ok && !result?.skipped) {
-    hud?.showFeedback?.({ action, source });
+    hud?.showFeedback?.({ action, source, labelText: meta?.labelText });
     showCommandToast(action, source, meta);
     debugLog(`command ok <- ${action}`, "ok");
     return;
@@ -375,4 +376,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

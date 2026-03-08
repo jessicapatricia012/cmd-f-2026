@@ -15,26 +15,11 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "page-up", phrases: ["page up", "scroll up"] },
   { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
   { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
-  {
-    action: "video-play",
-    phrases: ["play", "resume", "play video", "video play"],
-  },
-  {
-    action: "video-pause",
-    phrases: [
-      "pause",
-      "pause video",
-      "paused video",
-      "video pause",
-      "stop video",
-    ],
-  },
+  { action: "video-play", phrases: ["play", "resume", "play video", "video play"] },
+  { action: "video-pause", phrases: ["pause", "pause video", "paused video", "video pause", "stop video"] },
   { action: "video-next", phrases: ["next video", "skip video", "video next"] },
   { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
-  {
-    action: "video-unmute",
-    phrases: ["unmute", "unmute video", "video unmute"],
-  },
+  { action: "video-unmute", phrases: ["unmute", "unmute video", "video unmute"] },
   { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
   { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"] },
   { action: "fullscreen-exit", phrases: ["exit full screen", "leave full screen"] },
@@ -46,10 +31,6 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
-  {
-    action: "reload",
-    phrases: ["reload", "refresh", "reload page", "refresh page"],
-  },
 ];
 
 function normalizePhrase(phrase) {
@@ -193,8 +174,7 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
       for (const index of plainIndexes) {
         const hasWakePrefix =
           index >= WAKE_WORD.length + 1 &&
-          normalized.slice(index - (WAKE_WORD.length + 1), index) ===
-            `${WAKE_WORD} `;
+          normalized.slice(index - (WAKE_WORD.length + 1), index) === `${WAKE_WORD} `;
         if (hasWakePrefix) continue;
 
         matches.push({
@@ -276,20 +256,14 @@ let scribeModulePromise = null;
 function getScribeModule() {
   if (!scribeModulePromise) {
     // Load vendored module from extension package (MV3-safe, no remote code import).
-    scribeModulePromise = import(
-      chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs")
-    );
+    scribeModulePromise = import(chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs"));
   }
   return scribeModulePromise;
 }
 
 function isYouTubeHost() {
   const host = (window.location.hostname || "").toLowerCase();
-  return (
-    host === "youtube.com" ||
-    host === "www.youtube.com" ||
-    host === "m.youtube.com"
-  );
+  return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com";
 }
 
 async function getToken() {
@@ -358,7 +332,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         }
         onCommand(match.action, meta);
       }
-      setStatus(`heard: ${match.action}`);
+      setStatus(`heard: ${match.labelText ? `click: ${match.labelText}` : match.action}`);
     }
 
     return firedCount;
@@ -385,10 +359,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function scheduleRestart() {
     if (!enabled || !shouldRestart) return;
-    const delay = Math.min(
-      RESTART_MAX_DELAY_MS,
-      RESTART_BASE_DELAY_MS + consecutiveErrors * 400,
-    );
+    const delay = Math.min(RESTART_MAX_DELAY_MS, RESTART_BASE_DELAY_MS + consecutiveErrors * 400);
     setStatus(`restarting in ${delay}ms`);
 
     if (restartTimer) clearTimeout(restartTimer);
@@ -473,10 +444,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([
-        getScribeModule(),
-        getToken(),
-      ]);
+      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([getScribeModule(), getToken()]);
       if (!enabled) {
         starting = false;
         return;
@@ -520,9 +488,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       });
 
       connection.on(RealtimeEvents.ERROR, (error) => {
-        const errorCode = String(
-          error?.code || error?.type || error?.message || "unknown",
-        );
+        const errorCode = String(error?.code || error?.type || error?.message || "unknown");
         lastErrorCode = errorCode;
         consecutiveErrors += 1;
         console.error("[AFK] Voice error:", error);
@@ -541,10 +507,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       lastErrorCode = String(error?.message || "unknown");
       consecutiveErrors += 1;
       forceBrowserSpeech = true;
-      console.warn(
-        "[AFK] ElevenLabs unavailable, falling back to browser speech:",
-        error,
-      );
+      console.warn("[AFK] ElevenLabs unavailable, falling back to browser speech:", error);
       setStatus("fallback: browser speech");
       connection = null;
       if (enabled && shouldRestart) startBrowserSpeech();
