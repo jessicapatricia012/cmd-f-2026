@@ -1196,7 +1196,7 @@ async function bootstrap() {
    debugLogGesture("content script boot");
   debugLogFace("content script boot");
   debugLogVoice("content script boot");
-  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
+  await Promise.all([initHud(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();

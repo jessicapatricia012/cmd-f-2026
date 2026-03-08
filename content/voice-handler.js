@@ -6,7 +6,6 @@ const WAKE_WORD = "afk";
 const COMMAND_COOLDOWN_MS = 900;
 const RESTART_BASE_DELAY_MS = 700;
 const RESTART_MAX_DELAY_MS = 4000;
-const TOKEN_SERVER = "http://localhost:5001/scribe-token";
 const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
@@ -431,7 +430,9 @@ function detectCommands(
 // switch to browser speech after repeated failures.
 if (typeof window !== "undefined") {
   window.addEventListener("error", (event) => {
-    if (String(event?.error?.message || "").includes("WebSocket is not connected")) {
+    if (
+      String(event?.error?.message || "").includes("WebSocket is not connected")
+    ) {
       event.preventDefault();
     }
   });
@@ -459,13 +460,9 @@ function isYouTubeHost() {
 }
 
 async function getToken() {
-  const response = await fetch(TOKEN_SERVER);
-  if (!response.ok) {
-    throw new Error(`token fetch failed (${response.status})`);
-  }
-  const { token } = await response.json();
-  if (!token) throw new Error("token missing");
-  return token;
+  const response = await chrome.runtime.sendMessage({ type: "GET_SCRIBE_TOKEN" });
+  if (!response?.ok) throw new Error(response?.error || "token fetch failed");
+  return response.token;
 }
 
 function isEditableInput(el) {
@@ -721,19 +718,35 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     let detectedQuery = null;
     for (const re of vsRe) {
       const m = re.exec(rawNorm);
-      if (m && m[1].trim()) { detectedQuery = m[1].trim(); break; }
+      if (m && m[1].trim()) {
+        detectedQuery = m[1].trim();
+        break;
+      }
     }
     if (detectedQuery) {
       const fireSearch = (q, isCommitted) => {
-        if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+        if (searchPauseTimer) {
+          clearTimeout(searchPauseTimer);
+          searchPauseTimer = null;
+        }
         lastSearchQuery = null;
         if (typeof onCommand === "function")
-          onCommand("voice-search", { transcript, committed: isCommitted, source: "voice", searchQuery: q });
+          onCommand("voice-search", {
+            transcript,
+            committed: isCommitted,
+            source: "voice",
+            searchQuery: q,
+          });
         setStatus(`search: ${q}`);
-        firedMarkers = new Set(); lastPartialNormalized = "";
+        firedMarkers = new Set();
+        lastPartialNormalized = "";
       };
-      if (committed) { fireSearch(detectedQuery, true); return; }
-      const queryGrew = !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
+      if (committed) {
+        fireSearch(detectedQuery, true);
+        return;
+      }
+      const queryGrew =
+        !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
       lastSearchQuery = detectedQuery;
       if (queryGrew) {
         if (searchPauseTimer) clearTimeout(searchPauseTimer);
@@ -745,7 +758,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       }
       return;
     } else {
-      if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+      if (searchPauseTimer) {
+        clearTimeout(searchPauseTimer);
+        searchPauseTimer = null;
+      }
       lastSearchQuery = null;
     }
 
@@ -873,10 +889,8 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-      const [{ Scribe, RealtimeEvents, CommitStrategy }, token] = await Promise.all([
-        getScribeModule(),
-        getToken(),
-      ]);
+      const [{ Scribe, RealtimeEvents, CommitStrategy }, token] =
+        await Promise.all([getScribeModule(), getToken()]);
       if (!enabled) {
         starting = false;
         return;
@@ -940,7 +954,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
           consecutiveErrors += 1;
           if (consecutiveErrors >= 3) {
             forceBrowserSpeech = true;
-            console.warn("[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech");
+            console.warn(
+              "[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech",
+            );
             setStatus("fallback: browser speech");
           }
           scheduleRestart();
