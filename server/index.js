@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import { Readable } from "stream";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -37,6 +38,26 @@ app.get("/scribe-token", async (_req, res) => {
   try {
     const token = await elevenlabs.tokens.singleUse.create("realtime_scribe");
     res.json(token);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/tts", async (req, res) => {
+  const { text, voice_id = "21m00Tcm4TlvDq8ikWAM" } = req.body;
+  if (!elevenlabs) {
+    return res
+      .status(503)
+      .json({ error: "ELEVENLABS_API_KEY missing. Add it to .env." });
+  }
+  try {
+    const audioStream = await elevenlabs.textToSpeech.convert(voice_id, {
+      text,
+      modelId: "eleven_turbo_v2_5",
+      outputFormat: "mp3_44100_128",
+    });
+    res.setHeader("Content-Type", "audio/mpeg");
+    Readable.fromWeb(audioStream).pipe(res);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

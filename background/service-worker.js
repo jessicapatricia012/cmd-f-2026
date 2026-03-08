@@ -1008,8 +1008,8 @@ async function startOffscreen() {
   if (await offscreenExists()) return;
   await chrome.offscreen.createDocument({
     url: chrome.runtime.getURL("offscreen/offscreen.html"),
-    reasons: ["USER_MEDIA"],
-    justification: "Webcam access for real-time hand gesture recognition",
+    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: "Webcam access for hand gesture recognition and TTS audio playback",
   });
 }
 
@@ -1288,6 +1288,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  // Forward TTS requests from content scripts → offscreen document for playback
+  if (msg.type === "AFK_TTS") {
+    chrome.runtime.sendMessage({ type: "AFK_TTS", text: msg.text }).catch(() => {});
+    return false;
+  }
+
   // Relay gesture events from offscreen doc → active tab's content script
   if (msg.type === "gesture") {
     if (typeof msg.event === "string" && msg.event.startsWith("attention:")) {
@@ -1340,6 +1346,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
 
     if (msg.event === "gesture:closetab") {
+      chrome.runtime.sendMessage({ type: "AFK_TTS", text: "Close tab" }).catch(() => {});
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
         if (id != null) chrome.tabs.remove(id).catch(() => {});
@@ -1350,14 +1357,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       chrome.tabs.create({ active: true }).catch(() => {});
       return;
     }
-    if (msg.event === "gesture:refreshtab") {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        const id = tabs[0]?.id;
-        if (id != null) chrome.tabs.reload(id).catch(() => {});
-      });
-      return;
-    }
-
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]?.id) {
         chrome.tabs.sendMessage(tabs[0].id, msg).catch(() => {});

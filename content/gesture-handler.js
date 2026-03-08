@@ -64,9 +64,6 @@
   // Tuning constants — adjust these to taste
   // ---------------------------------------------------------------------------
   const CFG = {
-    // CDN for MediaPipe Hands JS + WASM files
-    MEDIAPIPE_CDN: "https://cdn.jsdelivr.net/npm/@mediapipe/hands",
-
     // Pinch: normalized distance between thumb tip and index tip
     PINCH_THRESHOLD: 0.08,
 
@@ -181,13 +178,10 @@
       // Happy path: background already injected hands.js from local assets — skip loading.
       if (window.Hands) return Promise.resolve();
 
-      // Fallback: try CDN (works on pages without strict script-src CSP).
-      // This path is only reached if the extension is loaded unpacked without
-      // the background having had a chance to inject first.
+      // Load from extension's local assets (web_accessible_resources).
       return new Promise((resolve, reject) => {
         const script = document.createElement("script");
-        script.src = `${CFG.MEDIAPIPE_CDN}/hands.js`;
-        script.crossOrigin = "anonymous";
+        script.src = chrome.runtime.getURL("assets/mediapipe/hands.js");
         script.onload = resolve;
         script.onerror = () =>
           reject(new Error("[GestureHandler] Failed to load MediaPipe Hands"));
@@ -219,7 +213,7 @@
     _setupHands() {
       // Prefer local extension assets (set by background before injection);
       // fall back to CDN if running without background injection.
-      const baseUrl = window.__AFK_MEDIAPIPE_URL || CFG.MEDIAPIPE_CDN;
+      const baseUrl = window.__AFK_MEDIAPIPE_URL || chrome.runtime.getURL("assets/mediapipe");
       this._hands = new window.Hands({
         locateFile: (file) => `${baseUrl}/${file}`,
       });

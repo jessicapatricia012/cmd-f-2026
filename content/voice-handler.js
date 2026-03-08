@@ -877,7 +877,16 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         lastErrorCode = errorCode;
         consecutiveErrors += 1;
         console.error("[AFK] Voice error:", error);
-        setStatus(`error: ${errorCode}`);
+        // 1006 = abnormal WebSocket closure, typically caused by the page's
+        // connect-src CSP blocking the ElevenLabs WebSocket. Retrying won't
+        // help — fall back to browser speech immediately.
+        if (String(error?.message || "").includes("1006")) {
+          forceBrowserSpeech = true;
+          console.warn("[AFK] WebSocket blocked (CSP?), falling back to browser speech");
+          setStatus("fallback: browser speech (csp)");
+        } else {
+          setStatus(`error: ${errorCode}`);
+        }
       });
 
       connection.on(RealtimeEvents.CLOSE, () => {

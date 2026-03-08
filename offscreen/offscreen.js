@@ -37,7 +37,7 @@ const CFG = {
   ENABLE_CLICK: false,
   ENABLE_DRAG: false,
   ENABLE_TAB_SWITCH: true,
-  ENABLE_SWIPE: false,
+  ENABLE_SWIPE: true,
   TAB_PINCH_THRESHOLD: 0.08,
   TAB_HOLD_SWITCH_MS: 420,
   TAB_HOLD_MIN_NORM: 0.06,
@@ -86,17 +86,15 @@ const CFG = {
   DRAG_MIN_NORM: 0.012, // ~20 px at 1600-wide screen, in normalised units
   TAB_SWITCH_ARM_NORM: 0.03, // second pinch must move horizontally before tab mode starts
   TAB_SWITCH_MIN_NORM: 0.08, // require explicit horizontal drag (~8% screen width)
-  REFRESH_THUMBS_UP_HOLD_MS: 500, // hold thumbs-up to refresh
-  REFRESH_COOLDOWN_MS: 1600,
   SCROLL_VELOCITY_THRESHOLD: 0.35, // normalised units / second
   SCROLL_SCALE: 320, // px per event per unit velocity
   SCROLL_SMOOTHING: 0.22, // low-pass filter (0-1), lower = smoother
   SCROLL_MAX_STEP_PX: 90, // clamp per event to avoid jumps
   SCROLL_DEADZONE_PX: 1.5, // ignore tiny jitter
   SCROLL_HISTORY_LEN: 8,
-  SWIPE_VELOCITY_THRESHOLD: 0.005,
-  SWIPE_WINDOW_MS: 450,
-  SWIPE_DIRECTIONALITY: 1.8,
+  SWIPE_VELOCITY_THRESHOLD: 0.45, // normalized units / second
+  SWIPE_WINDOW_MS: 520,
+  SWIPE_DIRECTIONALITY: 1.35,
   SWIPE_COOLDOWN_MS: 900,
   ZOOM_COOLDOWN_MS: 750,
   ZOOM_HOLD_MS: 220,
@@ -166,8 +164,6 @@ class GestureHandler {
       clapPrimedMs: 0,
       palmOpen: false,
       palmHistory: [],
-      refreshPoseStartMs: 0,
-      lastRefreshMs: 0,
       swipeCooldown: false,
       zoomCooldown: false,
       scrollMode: false,
@@ -400,20 +396,17 @@ class GestureHandler {
       !isScrollPosture;
     const isPinching = CFG.ENABLE_TAB_SWITCH ? isTabPinch : isThreeFingerPinch;
 
-    this._emit('gesture:cursor', { normX: 1 - indexTip.x, normY: indexTip.y });
-    // Cursor: index fingertip, mirrored (normX=0 left of screen)
     this._emit("gesture:cursor", { normX: 1 - indexTip.x, normY: indexTip.y });
 
     if (CFG.ENABLE_CLICK || CFG.ENABLE_DRAG || CFG.ENABLE_TAB_SWITCH) {
       this._detectPinch(isPinching, indexTip, middleTip, now);
     }
-    const isThumbsUp =
-      thumbTip.y < indexMcp.y && !indexUp && !middleUp && !ringUp && !pinkyUp;
-    const refreshActive = this._detectRefresh(isThumbsUp, isPinching, now);
-    if (CFG.ENABLE_SCROLL && !refreshActive) {
+    if (CFG.ENABLE_SCROLL) {
       this._detectScroll(
         indexUp,
         middleUp,
+        ringUp,
+        pinkyUp,
         isPinching,
         indexTip,
         middleTip,
@@ -444,7 +437,6 @@ class GestureHandler {
     s.scrollMode = false;
     s.scrollHistory = [];
     s.palmHistory = [];
-    s.refreshPoseStartMs = 0;
     s.clapArmed = false;
     s.clapPrimedMs = 0;
     s.fistSinceMs = null;
@@ -551,10 +543,23 @@ class GestureHandler {
     }
   }
 
-  _detectScroll(indexUp, middleUp, isPinching, indexTip, middleTip, now) {
+  _detectScroll(
+    indexUp,
+    middleUp,
+    ringUp,
+    pinkyUp,
+    isPinching,
+    indexTip,
+    middleTip,
+    now,
+  ) {
     const s = this._s;
 
-    if (!indexUp || !middleUp || isPinching || s.tabSwitching) {
+    // Keep scroll and swipe disjoint:
+    // scroll = two-finger posture (index+middle up, ring+pinky down)
+    const isTwoFingerScrollPose = indexUp && middleUp && !ringUp && !pinkyUp;
+
+    if (!isTwoFingerScrollPose || isPinching || s.tabSwitching) {
       s.scrollMode = false;
       s.scrollHistory = [];
       s.scrollVx = 0;
@@ -616,9 +621,14 @@ class GestureHandler {
       s.palmHistory = [];
       return;
     }
+    if (s.scrollMode || s.tabSwitching || s.pinching) {
+      s.palmHistory = [];
+      return;
+    }
     if (s.swipeCooldown) return;
 
-    s.palmHistory.push({ x: wrist.x, y: wrist.y, t: now });
+    // Mirror X for swipe too, so rightward hand motion matches cursor space.
+    s.palmHistory.push({ x: 1 - wrist.x, y: wrist.y, t: now });
     const cutoff = now - CFG.SWIPE_WINDOW_MS;
     while (s.palmHistory.length && s.palmHistory[0].t < cutoff)
       s.palmHistory.shift();
@@ -631,7 +641,8 @@ class GestureHandler {
 
     const dx = last.x - first.x;
     const dy = last.y - first.y;
-    const vx = dx / dt;
+    const dtSec = dt / 1000;
+    const vx = dx / dtSec;
 
     if (Math.abs(vx) < CFG.SWIPE_VELOCITY_THRESHOLD) return;
     if (Math.abs(dx) < Math.abs(dy) * CFG.SWIPE_DIRECTIONALITY) return;
@@ -642,34 +653,6 @@ class GestureHandler {
     setTimeout(() => {
       s.swipeCooldown = false;
     }, CFG.SWIPE_COOLDOWN_MS);
-  }
-
-  _detectRefresh(isThumbsUp, isPinching, now) {
-    const s = this._s;
-
-    if (!isThumbsUp || isPinching || s.tabSwitching || s.scrollMode) {
-      s.refreshPoseStartMs = 0;
-      return false;
-    }
-
-    // Prevent overlap with new-tab gesture transitions.
-    if (now - s.lastNewTabMs < 1000) {
-      s.refreshPoseStartMs = 0;
-      return false;
-    }
-
-    if (!s.refreshPoseStartMs) {
-      s.refreshPoseStartMs = now;
-      return true;
-    }
-
-    if (now - s.refreshPoseStartMs < CFG.REFRESH_THUMBS_UP_HOLD_MS) return true;
-    if (now - s.lastRefreshMs < CFG.REFRESH_COOLDOWN_MS) return true;
-
-    this._emit("gesture:refreshtab", {});
-    s.lastRefreshMs = now;
-    s.refreshPoseStartMs = 0;
-    return true;
   }
 
   _detectClap(allHands, handedness, now) {
@@ -886,6 +869,36 @@ class GestureHandler {
 const handler = new GestureHandler();
 handler.init().catch((err) => console.error('[AFK] offscreen failed:', err?.name, err?.message, err));
 
+// ---------------------------------------------------------------------------
+// TTS playback via dedicated worker + Web Audio API (no blob URLs)
+// ---------------------------------------------------------------------------
+const _ttsAudioCtx = new AudioContext();
+const _ttsWorker = new Worker(chrome.runtime.getURL('offscreen/tts-worker.js'));
+
+let _ttsActiveSrc = null;
+
+_ttsWorker.onmessage = async (e) => {
+  try {
+    // Stop any currently playing TTS before starting the new one
+    if (_ttsActiveSrc) {
+      try { _ttsActiveSrc.stop(); } catch (_) {}
+      _ttsActiveSrc = null;
+    }
+    if (_ttsAudioCtx.state === 'suspended') {
+      await _ttsAudioCtx.resume();
+    }
+    const decoded = await _ttsAudioCtx.decodeAudioData(e.data.buffer);
+    const src = _ttsAudioCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(_ttsAudioCtx.destination);
+    src.onended = () => { _ttsActiveSrc = null; };
+    _ttsActiveSrc = src;
+    src.start();
+  } catch (err) {
+    console.warn('[AFK TTS] decode/play failed:', err);
+  }
+};
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'AFK_SET_ATTENTION') {
     handler.setAttentionPaused(!msg.enabled);
@@ -898,5 +911,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (typeof msg.gazeOffsetX === 'number') {
       gazeOffsetX = msg.gazeOffsetX;
     }
+  }
+  if (msg.type === 'AFK_TTS' && msg.text) {
+    _ttsWorker.postMessage({ text: msg.text });
   }
 });
