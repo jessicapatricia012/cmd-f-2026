@@ -979,9 +979,16 @@ function executePageCommand(action, meta = {}) {
       if (Array.isArray(items) && meta.clickIndex > 0) {
         const item = items[meta.clickIndex - 1];
         if (item?.rect) {
-          const el = document.elementFromPoint(
-            item.rect.left + 4,
-            item.rect.top + 4,
+          const cx = item.rect.left + item.rect.width / 2;
+          const cy = item.rect.top + item.rect.height / 2;
+          // elementsFromPoint returns all elements in z-order; skip our own
+          // overlay badges so we reach the actual clickable element beneath.
+          const els = document.elementsFromPoint(cx, cy);
+          const el = els.find(
+            (e) =>
+              e !== document.documentElement &&
+              e !== document.body &&
+              !clickableBadges.includes(e),
           );
           el?.click();
         }
@@ -1196,7 +1203,7 @@ async function bootstrap() {
    debugLogGesture("content script boot");
   debugLogFace("content script boot");
   debugLogVoice("content script boot");
-  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
+  await Promise.all([initHud(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();

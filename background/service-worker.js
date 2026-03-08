@@ -1282,6 +1282,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
   }
 
+  // Proxy scribe token fetch — content scripts are subject to Private Network
+  // Access restrictions, but the service worker (chrome-extension:// origin) is not.
+  if (msg.type === "GET_SCRIBE_TOKEN") {
+    (async () => {
+      try {
+        const response = await fetch("http://localhost:5001/scribe-token");
+        if (!response.ok) throw new Error(`token fetch failed (${response.status})`);
+        const { token } = await response.json();
+        if (!token) throw new Error("token missing");
+        sendResponse({ ok: true, token });
+      } catch (err) {
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      }
+    })();
+    return true;
+  }
+
   // Switch to the adjacent tab (request from content script)
   if (msg.type === "tabswitch") {
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
