@@ -16,7 +16,6 @@ const DEFAULT_STATE = {
 let latestAttentionEvent = null;
 const attentionAutoPausedByTab = new Map();
 let lastAttentionActionAt = 0;
-let cachedState = { ...DEFAULT_STATE };
 const tabVideoPresence = new Map();
 
 let afkState = { ...DEFAULT_STATE };
@@ -27,22 +26,6 @@ chrome.storage.local.get("afkState", (result) => {
     afkState = { ...DEFAULT_STATE, ...result.afkState };
   }
 });
-
-async function getState() {
-  const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  cachedState = { ...DEFAULT_STATE, ...(stored[STORAGE_KEY] || {}) };
-  return cachedState;
-}
-
-async function setState(partial) {
-  const current = await getState();
-  const next = { ...current, ...partial };
-  await chrome.storage.sync.set({ [STORAGE_KEY]: next });
-  cachedState = next;
-  return next;
-}
-
-getState().catch(() => {});
 
 async function saveState() {
   return chrome.storage.local.set({ afkState });
@@ -57,7 +40,7 @@ async function broadcastState() {
       try {
         await chrome.tabs.sendMessage(tab.id, {
           type: "AFK_STATE_UPDATED",
-          payload: state,
+          payload: afkState,
         });
       } catch {
         // Ignore tabs without content script access.
@@ -84,8 +67,7 @@ async function handleAttentionPlayback(eventName) {
   const now = Date.now();
   if (now - lastAttentionActionAt < 300) return;
 
-  const state = await getState();
-  if (!state.enabled || state.faceAttentionEnabled === false) {
+  if (!afkState.enabled || afkState.faceAttentionEnabled === false) {
     broadcastAttentionEvent({
       type: "gesture",
       event: "attention:action",
@@ -996,113 +978,6 @@ const ACTION_HANDLERS = {
   },
 };
 
-chrome.runtime.onInstalled.addListener(async () => {
-  const current = await getState();
-  await chrome.storage.sync.set({ [STORAGE_KEY]: current });
-});
-
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  (async () => {
-    if (!message?.type) {
-      sendResponse({ ok: false, error: "Missing message type" });
-      return;
-    }
-
-    if (message.type === "AFK_GET_STATE") {
-      const state = await getState();
-      sendResponse({ ok: true, state });
-      return;
-    }
-
-    if (message.type === "AFK_SET_STATE") {
-      const nextState = await setState(message.payload || {});
-      await broadcastState(nextState);
-      updateAttentionEnabled().catch(() => {});
-      sendResponse({ ok: true, state: nextState });
-      return;
-    }
-
-    if (message.type === "AFK_EXTERNAL_ATTENTION") {
-      const eventName = String(message.payload?.event || "");
-      if (!eventName.startsWith("attention:")) {
-        sendResponse({ ok: false, error: "Invalid external attention event" });
-        return;
-      }
-      latestAttentionEvent = {
-        event: eventName,
-        detail: message.payload?.detail || {},
-        at: Date.now(),
-      };
-      const relay = {
-        type: "gesture",
-        event: eventName,
-        detail: message.payload?.detail || {},
-      };
-      await broadcastAttentionEvent(relay);
-      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
-        await handleAttentionPlayback(eventName);
-      }
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message.type === "AFK_GET_ATTENTION_STATUS") {
-      sendResponse({
-        ok: true,
-        event: latestAttentionEvent?.event || null,
-        detail: latestAttentionEvent?.detail || null,
-        at: latestAttentionEvent?.at || null,
-      });
-      return;
-    }
-
-    if (message.type === "AFK_VIDEO_PRESENCE") {
-      const tabId = sender?.tab?.id;
-      if (tabId != null) tabVideoPresence.set(tabId, Boolean(message.hasVideo));
-      updateAttentionEnabled().catch(() => {});
-      sendResponse({ ok: true });
-      return;
-    }
-
-    if (message.type === "AFK_COMMAND") {
-      const state = await getState();
-      const action = message.payload?.action;
-
-      if (!state.enabled) {
-        sendResponse({ ok: true, skipped: true, reason: "disabled" });
-        return;
-      }
-
-      const handler = ACTION_HANDLERS[action];
-      if (!handler) {
-        sendResponse({ ok: false, error: `Unknown action: ${action}` });
-        return;
-      }
-
-      const sourceTabId = sender?.tab?.id;
-      const result = await handler(sourceTabId, message.payload || {});
-      if (result && typeof result === "object" && "ok" in result) {
-        sendResponse(result);
-        return;
-      }
-
-      sendResponse({ ok: true });
-      return;
-    }
-
-    sendResponse({
-      ok: false,
-      error: `Unsupported message type: ${message.type}`,
-    });
-  })().catch((error) => {
-    sendResponse({
-      ok: false,
-      error: error?.message || String(error),
-    });
-  });
-
-  return true;
-});
 
 // ---------------------------------------------------------------------------
 // Offscreen document helpers
@@ -1163,7 +1038,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 async function updateAttentionEnabled() {
-  const faceEnabled = cachedState.enabled && cachedState.faceAttentionEnabled !== false;
+  const faceEnabled = afkState.enabled && afkState.faceAttentionEnabled !== false;
   const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const hasVideo = activeTab?.id ? (tabVideoPresence.get(activeTab.id) || false) : false;
   try {
@@ -1181,12 +1056,6 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // Message routing
 // ---------------------------------------------------------------------------
 
-// Browser-level actions handled entirely in the service worker
-const BROWSER_LEVEL_COMMANDS = new Set([
-  "zoom-in", "zoom-out", "next-tab", "prev-tab", "new-tab",
-  "go-back", "go-forward", "page-refresh",
-]);
-
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // Return current state to popup or content script
   if (msg.type === "AFK_GET_STATE") {
@@ -1199,9 +1068,57 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     afkState = { ...afkState, ...(msg.payload || {}) };
     saveState()
       .then(() => broadcastState())
-      .then(() => sendResponse({ ok: true, state: afkState }))
+      .then(() => {
+        updateAttentionEnabled().catch(() => {});
+        sendResponse({ ok: true, state: afkState });
+      })
       .catch((err) => sendResponse({ ok: false, error: String(err) }));
     return true;
+  }
+
+  // External attention events (from companion page / server)
+  if (msg.type === "AFK_EXTERNAL_ATTENTION") {
+    (async () => {
+      const eventName = String(msg.payload?.event || "");
+      if (!eventName.startsWith("attention:")) {
+        sendResponse({ ok: false, error: "Invalid external attention event" });
+        return;
+      }
+      latestAttentionEvent = {
+        event: eventName,
+        detail: msg.payload?.detail || {},
+        at: Date.now(),
+      };
+      const relay = {
+        type: "gesture",
+        event: eventName,
+        detail: msg.payload?.detail || {},
+      };
+      await broadcastAttentionEvent(relay);
+      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
+        await handleAttentionPlayback(eventName);
+      }
+      sendResponse({ ok: true });
+    })().catch((err) => sendResponse({ ok: false, error: String(err) }));
+    return true;
+  }
+
+  if (msg.type === "AFK_GET_ATTENTION_STATUS") {
+    sendResponse({
+      ok: true,
+      event: latestAttentionEvent?.event || null,
+      detail: latestAttentionEvent?.detail || null,
+      at: latestAttentionEvent?.at || null,
+    });
+    return;
+  }
+
+  if (msg.type === "AFK_VIDEO_PRESENCE") {
+    const tabId = sender?.tab?.id;
+    if (tabId != null) tabVideoPresence.set(tabId, Boolean(msg.hasVideo));
+    updateAttentionEnabled().catch(() => {});
+    sendResponse({ ok: true });
+    return;
   }
 
   // Execute a voice or gesture command
@@ -1321,7 +1238,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
-    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
 
     if (msg.event === "gesture:closetab") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -1352,7 +1269,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Zoom in / out on the sender tab (request from content script)
   if (msg.type === "zoom") {
-    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
     const tabId = sender.tab?.id;
     if (!tabId) return;
     chrome.tabs.getZoom(tabId, (current) => {
@@ -1367,7 +1284,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Switch to the adjacent tab (request from content script)
   if (msg.type === "tabswitch") {
-    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
+    if (!afkState.enabled || !afkState.gesturesEnabled) return;
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
       const sorted = tabs.slice().sort((a, b) => a.index - b.index);
       const activeIdx = sorted.findIndex((t) => t.active);
