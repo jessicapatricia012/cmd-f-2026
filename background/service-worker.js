@@ -71,6 +71,16 @@ async function broadcastAttentionEvent(message) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Camera gating — offscreen doc is only needed when the extension is enabled
+// AND at least one camera-dependent feature (gestures or face) is active.
+// ---------------------------------------------------------------------------
+
+function needsCamera(state = afkState) {
+  if (!state.enabled) return false;
+  return state.gesturesEnabled === true || state.faceAttentionEnabled === true;
+}
+
 async function handleAttentionPlayback(eventName) {
   const now = Date.now();
   if (now - lastAttentionActionAt < 300) return;
@@ -332,7 +342,6 @@ const ACTION_HANDLERS = {
           const wasMuted =
             typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
           if (wasMuted !== true) {
-            // Prefer M-key toggle on YouTube so the player shows mute UI.
             pressMKey();
             const nowMuted =
               typeof ytPlayer.isMuted === "function"
@@ -340,12 +349,10 @@ const ACTION_HANDLERS = {
                 : null;
             if (nowMuted === true) return;
           }
-          // Fallback when key dispatch does not toggle state.
           ytPlayer.mute();
           return;
         }
 
-        // Non-YouTube fallback path: try keyboard toggle first.
         pressMKey();
         const videos = Array.from(document.querySelectorAll("video"));
         for (const video of videos) {
@@ -381,7 +388,6 @@ const ACTION_HANDLERS = {
           const wasMuted =
             typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
           if (wasMuted !== false) {
-            // Prefer M-key toggle on YouTube so the player shows unmute UI.
             pressMKey();
             const nowMuted =
               typeof ytPlayer.isMuted === "function"
@@ -389,12 +395,10 @@ const ACTION_HANDLERS = {
                 : null;
             if (nowMuted === false) return;
           }
-          // Fallback when key dispatch does not toggle state.
           ytPlayer.unMute();
           return;
         }
 
-        // Non-YouTube fallback path: try keyboard toggle first.
         pressMKey();
         const videos = Array.from(document.querySelectorAll("video"));
         for (const video of videos) {
@@ -553,7 +557,6 @@ const ACTION_HANDLERS = {
           return { ok: true, matched: getElementLabel(centerEl) };
         }
 
-        // Last resort: find any visible clickable element on screen
         const allClickable = Array.from(
           document.querySelectorAll(
             "button, a, [role='button'], input[type='submit'], [tabindex='0']",
@@ -568,9 +571,6 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return status;
   },
-  // Finds and clicks an element by its visible text label.
-  // Triggered by voice commands like "AFK click sign in".
-  // Prefers exact matches over partial matches to avoid greedy misfires.
   "click-text": async (targetTabId, payload = {}) => {
     const label = String(payload.labelText || "")
       .toLowerCase()
@@ -631,7 +631,6 @@ const ACTION_HANDLERS = {
               isVisible(el) && (el.tagName !== "LI" || isInteractableLi(el)),
           );
 
-          // Prefer exact match first, fall back to partial match.
           const exactMatch = candidates.find(
             (el) => getLabel(el) === searchLabel,
           );
@@ -766,8 +765,6 @@ const ACTION_HANDLERS = {
       );
     }, targetTabId);
   },
-  // Scans the page for all clickable elements and returns them as a list.
-  // content.js renders the overlay + badges using this data.
   "list-clickable": async (targetTabId) => {
     let result = { ok: false, error: "No active tab" };
     await withActiveTab(async (tab) => {
@@ -843,7 +840,6 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return result;
   },
-  // Tells content.js to close the clickable overlay.
   "close-list": async (targetTabId) => {
     await withActiveTab(async (tab) => {
       await executeInTab(tab.id, () => {
@@ -851,7 +847,6 @@ const ACTION_HANDLERS = {
       });
     }, targetTabId);
   },
-  // Clicks an element by its number from the list-clickable overlay.
   "click-number": async (targetTabId, payload = {}) => {
     const clickIndex = Number(payload.clickIndex);
     if (!clickIndex || clickIndex < 1)
@@ -862,7 +857,6 @@ const ACTION_HANDLERS = {
       result = await executeInTabWithResult(
         tab.id,
         (idx) => {
-          // Try to use stored items from the overlay for accurate targeting
           const stored = window.__afkClickableItems;
           if (stored && stored[idx - 1]) {
             const item = stored[idx - 1];
@@ -886,7 +880,6 @@ const ACTION_HANDLERS = {
             }
           }
 
-          // Fallback: re-query the DOM
           const isVisible = (el) => {
             if (!(el instanceof HTMLElement)) return false;
             const style = window.getComputedStyle(el);
@@ -992,7 +985,6 @@ const ACTION_HANDLERS = {
 // ---------------------------------------------------------------------------
 
 async function offscreenExists() {
-  // Chrome 116+ supports runtime.getContexts; older versions need SW clients fallback.
   if (chrome.runtime.getContexts) {
     const contexts = await chrome.runtime.getContexts({
       contextTypes: ["OFFSCREEN_DOCUMENT"],
@@ -1020,15 +1012,19 @@ async function stopOffscreen() {
 }
 
 // ---------------------------------------------------------------------------
-// Auto-start if camera permission was previously granted
+// Auto-start — only if camera permission was granted AND a camera feature is on
 // ---------------------------------------------------------------------------
 
 async function autoStartIfPermitted() {
   try {
     const perm = await navigator.permissions.query({ name: "camera" });
-    if (perm.state === "granted" && afkState.enabled) await startOffscreen();
+    if (perm.state === "granted" && needsCamera()) {
+      await startOffscreen();
+    } else if (!needsCamera()) {
+      await stopOffscreen();
+    }
   } catch {
-    // permissions API unavailable — skip auto-start; user opens popup to enable
+    // permissions API unavailable — skip
   }
 }
 
@@ -1039,7 +1035,6 @@ chrome.runtime.onStartup.addListener(() =>
   autoStartIfPermitted().catch(console.error),
 );
 
-// Revive offscreen doc if service worker woke up and doc was closed
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === "complete")
     autoStartIfPermitted().catch(console.error);
@@ -1076,20 +1071,19 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // ---------------------------------------------------------------------------
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  // Return current state to popup or content script
   if (msg.type === "AFK_GET_STATE") {
     sendResponse({ ok: true, state: afkState });
     return;
   }
 
-  // Merge partial state update, persist, and broadcast
   if (msg.type === "AFK_SET_STATE") {
     afkState = { ...afkState, ...(msg.payload || {}) };
     saveState()
       .then(() => broadcastState())
       .then(async () => {
         updateAttentionEnabled().catch(() => {});
-        if (afkState.enabled) {
+        // Start or stop offscreen based on whether any camera feature is needed
+        if (needsCamera()) {
           await startOffscreen();
         } else {
           await stopOffscreen();
@@ -1100,7 +1094,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // External attention events (from companion page / server)
   if (msg.type === "AFK_EXTERNAL_ATTENTION") {
     (async () => {
       const eventName = String(msg.payload?.event || "");
@@ -1150,7 +1143,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
-  // Execute a voice or gesture command
   if (msg.type === "AFK_COMMAND") {
     const { action, source, ...meta } = msg.payload || {};
     const tabId = sender.tab?.id;
@@ -1210,7 +1202,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       const query = String(meta.searchQuery || "").trim();
       if (!query) { sendResponse({ ok: false, error: "no query" }); return; }
       (async () => {
-        // First try to fill a search input on the current page.
         let filled = false;
         if (tabId) {
           try {
@@ -1252,7 +1243,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             filled = results?.[0]?.result === true;
           } catch (_) {}
         }
-        // No search box found — open Google in a new tab.
         if (!filled) {
           await chrome.tabs.create({ url: `https://www.google.com/search?q=${encodeURIComponent(query)}`, active: true });
         }
@@ -1260,6 +1250,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })();
       return true;
     }
+
     const targetTabId = tabId ?? null;
     if (!targetTabId) { sendResponse({ ok: false, error: "no tab" }); return; }
     chrome.tabs.sendMessage(
@@ -1272,8 +1263,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Popup toggled ON — camera permission was just granted by the popup
+  // Popup toggled ON — start offscreen only if a camera feature is enabled
   if (msg.type === "start") {
+    if (!needsCamera()) {
+      sendResponse({ ok: true, skipped: true, reason: "no camera features enabled" });
+      return;
+    }
     startOffscreen()
       .then(() => sendResponse({ ok: true }))
       .catch((err) => {
@@ -1294,13 +1289,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  // Forward TTS requests from content scripts → offscreen document for playback
   if (msg.type === "AFK_TTS") {
     chrome.runtime.sendMessage({ type: "AFK_TTS", text: msg.text }).catch(() => {});
     return false;
   }
 
-  // Relay gesture events from offscreen doc → active tab's content script
   if (msg.type === "gesture") {
     if (typeof msg.event === "string" && msg.event.startsWith("attention:")) {
       latestAttentionEvent = {
@@ -1371,7 +1364,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return;
   }
 
-  // Zoom in / out on the sender tab (request from content script)
   if (msg.type === "zoom") {
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
     const tabId = sender.tab?.id;
@@ -1386,7 +1378,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     });
   }
 
-  // Switch to the adjacent tab (request from content script)
   if (msg.type === "tabswitch") {
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
