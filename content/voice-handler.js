@@ -11,19 +11,43 @@ const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const DEFAULT_COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down", "scroll down"] },
-  { action: "page-up", phrases: ["page up", "scroll up"] },
+  { action: "page-down", phrases: ["page down", "scroll down", "go down"] },
+  { action: "page-up", phrases: ["page up", "scroll up", "go up"] },
   { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
   { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
-  { action: "video-play", phrases: ["play", "resume", "play video", "video play"] },
-  { action: "video-pause", phrases: ["pause", "pause video", "paused video", "video pause", "stop video"] },
+  {
+    action: "video-play",
+    phrases: ["play", "resume", "play video", "video play"],
+  },
+  {
+    action: "video-pause",
+    phrases: [
+      "pause",
+      "pause video",
+      "paused video",
+      "video pause",
+      "stop video",
+    ],
+  },
   { action: "video-next", phrases: ["next video", "skip video", "video next"] },
   { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
-  { action: "video-unmute", phrases: ["unmute", "unmute video", "video unmute"] },
+  {
+    action: "video-unmute",
+    phrases: ["unmute", "unmute video", "video unmute"],
+  },
   { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
-  { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"] },
-  { action: "fullscreen-exit", phrases: ["exit full screen", "leave full screen"] },
-  { action: "click-target", phrases: ["click", "click that", "click this", "select this"] },
+  {
+    action: "fullscreen-enter",
+    phrases: ["enter fullscreen", "enter full screen"],
+  },
+  {
+    action: "fullscreen-exit",
+    phrases: ["exit full screen", "leave full screen"],
+  },
+  {
+    action: "click-target",
+    phrases: ["click", "click that", "click this", "select this"],
+  },
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -31,8 +55,29 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
-  { action: "list-clickable", phrases: ["what can i click", "show clickable", "list clickable", "show buttons", "show clickables"] },
-  { action: "close-list", phrases: ["close list", "hide list", "dismiss list", "close overlay", "hide clickable", "hide clickables", "close clickable", "close clickables"] },
+  {
+    action: "list-clickable",
+    phrases: [
+      "what can i click",
+      "show clickable",
+      "list clickable",
+      "show buttons",
+      "show clickables",
+    ],
+  },
+  {
+    action: "close-list",
+    phrases: [
+      "close list",
+      "hide list",
+      "dismiss list",
+      "close overlay",
+      "hide clickable",
+      "hide clickables",
+      "close clickable",
+      "close clickables",
+    ],
+  },
 ];
 
 function normalizePhrase(phrase) {
@@ -47,20 +92,65 @@ const SPECIAL_KEY_MAP = {
   spacebar: { key: " ", code: "Space", keyCode: 32, label: "Space" },
   escape: { key: "Escape", code: "Escape", keyCode: 27, label: "Escape" },
   esc: { key: "Escape", code: "Escape", keyCode: 27, label: "Escape" },
-  backspace: { key: "Backspace", code: "Backspace", keyCode: 8, label: "Backspace" },
+  backspace: {
+    key: "Backspace",
+    code: "Backspace",
+    keyCode: 8,
+    label: "Backspace",
+  },
   delete: { key: "Delete", code: "Delete", keyCode: 46, label: "Delete" },
   home: { key: "Home", code: "Home", keyCode: 36, label: "Home" },
   end: { key: "End", code: "End", keyCode: 35, label: "End" },
   "page up": { key: "PageUp", code: "PageUp", keyCode: 33, label: "Page Up" },
-  "page down": { key: "PageDown", code: "PageDown", keyCode: 34, label: "Page Down" },
+  "page down": {
+    key: "PageDown",
+    code: "PageDown",
+    keyCode: 34,
+    label: "Page Down",
+  },
   up: { key: "ArrowUp", code: "ArrowUp", keyCode: 38, label: "Arrow Up" },
-  "arrow up": { key: "ArrowUp", code: "ArrowUp", keyCode: 38, label: "Arrow Up" },
-  down: { key: "ArrowDown", code: "ArrowDown", keyCode: 40, label: "Arrow Down" },
-  "arrow down": { key: "ArrowDown", code: "ArrowDown", keyCode: 40, label: "Arrow Down" },
-  left: { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, label: "Arrow Left" },
-  "arrow left": { key: "ArrowLeft", code: "ArrowLeft", keyCode: 37, label: "Arrow Left" },
-  right: { key: "ArrowRight", code: "ArrowRight", keyCode: 39, label: "Arrow Right" },
-  "arrow right": { key: "ArrowRight", code: "ArrowRight", keyCode: 39, label: "Arrow Right" },
+  "arrow up": {
+    key: "ArrowUp",
+    code: "ArrowUp",
+    keyCode: 38,
+    label: "Arrow Up",
+  },
+  down: {
+    key: "ArrowDown",
+    code: "ArrowDown",
+    keyCode: 40,
+    label: "Arrow Down",
+  },
+  "arrow down": {
+    key: "ArrowDown",
+    code: "ArrowDown",
+    keyCode: 40,
+    label: "Arrow Down",
+  },
+  left: {
+    key: "ArrowLeft",
+    code: "ArrowLeft",
+    keyCode: 37,
+    label: "Arrow Left",
+  },
+  "arrow left": {
+    key: "ArrowLeft",
+    code: "ArrowLeft",
+    keyCode: 37,
+    label: "Arrow Left",
+  },
+  right: {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    keyCode: 39,
+    label: "Arrow Right",
+  },
+  "arrow right": {
+    key: "ArrowRight",
+    code: "ArrowRight",
+    keyCode: 39,
+    label: "Arrow Right",
+  },
 };
 
 function resolveSpokenKey(phrase) {
@@ -153,7 +243,10 @@ function findPhraseIndexes(text, phrase) {
   return indexes;
 }
 
-function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT_COMMAND_ALIASES } = {}) {
+function detectCommands(
+  text,
+  { requireWakeWord = true, commandAliases = DEFAULT_COMMAND_ALIASES } = {},
+) {
   const normalized = normalizeText(text);
   if (!normalized) return { normalized, matches: [] };
 
@@ -176,7 +269,8 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
       for (const index of plainIndexes) {
         const hasWakePrefix =
           index >= WAKE_WORD.length + 1 &&
-          normalized.slice(index - (WAKE_WORD.length + 1), index) === `${WAKE_WORD} `;
+          normalized.slice(index - (WAKE_WORD.length + 1), index) ===
+            `${WAKE_WORD} `;
         if (hasWakePrefix) continue;
 
         matches.push({
@@ -208,10 +302,29 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   // Detect "afk click clickable <number>" pattern — e.g. "afk click clickable 3" or "afk click clickable three"
   // Using "clickable" as a disambiguator prevents conflicts with elements named after numbers.
   const WORD_TO_NUM = {
-    one: 1, two: 2, to: 2, too: 2, three: 3, four: 4, for: 4, five: 5,
-    six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
-    eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
-    sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+    one: 1,
+    two: 2,
+    to: 2,
+    too: 2,
+    three: 3,
+    four: 4,
+    for: 4,
+    five: 5,
+    six: 6,
+    seven: 7,
+    eight: 8,
+    nine: 9,
+    ten: 10,
+    eleven: 11,
+    twelve: 12,
+    thirteen: 13,
+    fourteen: 14,
+    fifteen: 15,
+    sixteen: 16,
+    seventeen: 17,
+    eighteen: 18,
+    nineteen: 19,
+    twenty: 20,
   };
   const numWords = Object.keys(WORD_TO_NUM).join("|");
   const clickNumberPattern = requireWakeWord
@@ -220,7 +333,9 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
   let clickNumberMatch = clickNumberPattern.exec(normalized);
   while (clickNumberMatch) {
     const raw = clickNumberMatch[1];
-    const clickIndex = /^\d+$/.test(raw) ? parseInt(raw, 10) : (WORD_TO_NUM[raw] || 0);
+    const clickIndex = /^\d+$/.test(raw)
+      ? parseInt(raw, 10)
+      : WORD_TO_NUM[raw] || 0;
     if (clickIndex > 0) {
       matches.push({
         action: "click-number",
@@ -241,9 +356,17 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
     const labelText = clickTextMatch[1].trim();
     // Skip generic click phrases and anything starting with "clickable" (handled by click-number)
     const genericClickPhrases = new Set(["that", "this", ""]);
-    const isClickableNumber = /^clickable\s+(\d+|one|two|to|too|three|four|for|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(labelText);
+    const isClickableNumber =
+      /^clickable\s+(\d+|one|two|to|too|three|four|for|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)$/.test(
+        labelText,
+      );
     const startsWithClickable = /^clickable\b/.test(labelText);
-    if (labelText && !genericClickPhrases.has(labelText) && !isClickableNumber && !startsWithClickable) {
+    if (
+      labelText &&
+      !genericClickPhrases.has(labelText) &&
+      !isClickableNumber &&
+      !startsWithClickable
+    ) {
       matches.push({
         action: "click-text",
         index: clickTextMatch.index,
@@ -262,10 +385,10 @@ function detectCommands(text, { requireWakeWord = true, commandAliases = DEFAULT
     const actionKey = match.keyData
       ? `${match.action}:${match.keyData.code}`
       : match.labelText
-      ? `${match.action}:${match.labelText}`
-      : match.clickIndex != null
-      ? `${match.action}:${match.clickIndex}`
-      : match.action;
+        ? `${match.action}:${match.labelText}`
+        : match.clickIndex != null
+          ? `${match.action}:${match.clickIndex}`
+          : match.action;
     const nextOrdinal = (actionOrdinal.get(actionKey) || 0) + 1;
     actionOrdinal.set(actionKey, nextOrdinal);
     match.marker = `${actionKey}#${nextOrdinal}`;
@@ -287,14 +410,20 @@ let scribeModulePromise = null;
 function getScribeModule() {
   if (!scribeModulePromise) {
     // Load vendored module from extension package (MV3-safe, no remote code import).
-    scribeModulePromise = import(chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs"));
+    scribeModulePromise = import(
+      chrome.runtime.getURL("content/vendor/elevenlabs-client.bundle.mjs")
+    );
   }
   return scribeModulePromise;
 }
 
 function isYouTubeHost() {
   const host = (window.location.hostname || "").toLowerCase();
-  return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com";
+  return (
+    host === "youtube.com" ||
+    host === "www.youtube.com" ||
+    host === "m.youtube.com"
+  );
 }
 
 async function getToken() {
@@ -337,10 +466,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       const cooldownKey = match.keyData
         ? `${match.action}:${match.keyData.code}`
         : match.labelText
-        ? `${match.action}:${match.labelText}`
-        : match.clickIndex != null
-        ? `${match.action}:${match.clickIndex}`
-        : match.action;
+          ? `${match.action}:${match.labelText}`
+          : match.clickIndex != null
+            ? `${match.action}:${match.clickIndex}`
+            : match.action;
       const previous = lastFiredAt.get(cooldownKey) || 0;
       if (now - previous < COMMAND_COOLDOWN_MS) continue;
 
@@ -368,7 +497,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         }
         onCommand(match.action, meta);
       }
-      setStatus(`heard: ${match.labelText ? `click: ${match.labelText}` : match.action}`);
+      setStatus(
+        `heard: ${match.labelText ? `click: ${match.labelText}` : match.action}`,
+      );
     }
 
     return firedCount;
@@ -376,7 +507,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function processTranscript(text, { committed = false } = {}) {
     const transcript = String(text || "");
-    const { normalized, matches } = detectCommands(transcript, { requireWakeWord, commandAliases });
+    const { normalized, matches } = detectCommands(transcript, {
+      requireWakeWord,
+      commandAliases,
+    });
 
     if (!committed) {
       lastPartialNormalized = normalized;
@@ -395,7 +529,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function scheduleRestart() {
     if (!enabled || !shouldRestart) return;
-    const delay = Math.min(RESTART_MAX_DELAY_MS, RESTART_BASE_DELAY_MS + consecutiveErrors * 400);
+    const delay = Math.min(
+      RESTART_MAX_DELAY_MS,
+      RESTART_BASE_DELAY_MS + consecutiveErrors * 400,
+    );
     setStatus(`restarting in ${delay}ms`);
 
     if (restartTimer) clearTimeout(restartTimer);
@@ -480,7 +617,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([getScribeModule(), getToken()]);
+      const [{ Scribe, RealtimeEvents }, token] = await Promise.all([
+        getScribeModule(),
+        getToken(),
+      ]);
       if (!enabled) {
         starting = false;
         return;
@@ -524,7 +664,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       });
 
       connection.on(RealtimeEvents.ERROR, (error) => {
-        const errorCode = String(error?.code || error?.type || error?.message || "unknown");
+        const errorCode = String(
+          error?.code || error?.type || error?.message || "unknown",
+        );
         lastErrorCode = errorCode;
         consecutiveErrors += 1;
         console.error("[AFK] Voice error:", error);
@@ -543,7 +685,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       lastErrorCode = String(error?.message || "unknown");
       consecutiveErrors += 1;
       forceBrowserSpeech = true;
-      console.warn("[AFK] ElevenLabs unavailable, falling back to browser speech:", error);
+      console.warn(
+        "[AFK] ElevenLabs unavailable, falling back to browser speech:",
+        error,
+      );
       setStatus("fallback: browser speech");
       connection = null;
       if (enabled && shouldRestart) startBrowserSpeech();
@@ -598,7 +743,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       requireWakeWord = nextConfig.requireWakeWord;
       setStatus(requireWakeWord ? "wake-word:on" : "wake-word:off");
     }
-    if (nextConfig.customKeywords && typeof nextConfig.customKeywords === "object") {
+    if (
+      nextConfig.customKeywords &&
+      typeof nextConfig.customKeywords === "object"
+    ) {
       commandAliases = buildCommandAliases(nextConfig.customKeywords);
       setStatus("keywords:updated");
     }
