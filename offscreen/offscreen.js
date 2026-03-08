@@ -30,6 +30,7 @@ const CFG = {
   TAB_HOLD_SWITCH_MS: 420,   // hold pinch before tab-switch can fire
   TAB_HOLD_MIN_NORM: 0.06,   // horizontal pinch movement needed (~6% width)
   TAB_HOLD_COOLDOWN_MS: 900, // avoid repeat switches while held
+  TAB_SWITCH_BLOCK_AFTER_SCROLL_MS: 450, // don't enter tab-switch right after scroll
   CLAP_DISTANCE_THRESHOLD: 0.14,         // wrist-to-wrist distance to count as clap
   CLAP_RELEASE_DISTANCE_THRESHOLD: 0.24, // rearm clap after hands separate
   CLAP_PRIME_DISTANCE_THRESHOLD: 0.36,   // hands must first be clearly apart
@@ -247,6 +248,7 @@ class GestureHandler {
     };
 
     if (isPinching && !s.pinching) {
+      if (s.scrollMode || now - s.lastScrollMs < CFG.TAB_SWITCH_BLOCK_AFTER_SCROLL_MS) return;
       s.pinching      = true;
       s.pinchStartMs  = now;
       s.pinchStartNorm = { ...mid };
@@ -326,7 +328,7 @@ class GestureHandler {
   _detectScroll(indexUp, middleUp, isPinching, indexTip, middleTip, now) {
     const s = this._s;
 
-    if (!indexUp || !middleUp || isPinching) {
+    if (!indexUp || !middleUp || isPinching || s.tabSwitching) {
       s.scrollMode    = false;
       s.scrollHistory = [];
       s.scrollVx = 0;
