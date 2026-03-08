@@ -4,38 +4,49 @@ const CHANNEL = {
   STATE_UPDATED: "AFK_STATE_UPDATED",
 };
 
-const DEFAULT_KEYWORDS = {
-  "page-down": ["page down", "scroll down"],
-  "page-up": ["page up", "scroll up"],
-  "go-home": ["home", "go home", "top", "to top"],
-  "go-end": ["end", "go end", "bottom", "to bottom"],
-  "video-play": ["play", "resume", "play video", "video play"],
-  "video-pause": ["pause", "pause video", "paused video", "video pause", "stop video"],
-  "video-next": ["next video", "skip video", "video next"],
-  "video-mute": ["mute", "mute video", "video mute"],
-  "video-unmute": ["unmute", "unmute video", "video unmute"],
-  "page-refresh": ["refresh", "reload", "refresh page"],
-  "fullscreen-enter": ["enter fullscreen", "enter full screen"],
-  "fullscreen-exit": ["exit full screen", "leave full screen"],
-  "click-target": ["click", "click that", "click this", "select this"],
-  "zoom-in": ["zoom in"],
-  "zoom-out": ["zoom out"],
-  "next-tab": ["next tab", "tab next"],
-  "prev-tab": ["previous tab", "prev tab", "back tab"],
-  "go-back": ["go back"],
-  "go-forward": ["go forward"],
-  "new-tab": ["new tab", "open tab"],
+const COMMANDS = {
+  "page-down":        { phrases: ["scroll down"] },
+  "page-up":          { phrases: ["scroll up"] },
+  "go-home":          { phrases: ["home key"] },
+  "go-end":           { phrases: ["end key"] },
+  "video-play":       { phrases: ["play"] },
+  "video-pause":      { phrases: ["pause"] },
+  "video-next":       { phrases: ["next video"] },
+  "video-mute":       { phrases: ["mute video"] },
+  "video-unmute":     { phrases: ["unmute video"] },
+  "page-refresh":     { phrases: ["refresh"] },
+  "fullscreen-enter": { phrases: ["enter fullscreen", "enter full screen"] },
+  "fullscreen-exit":  { phrases: ["exit full screen"] },
+  "zoom-in":          { phrases: ["zoom in"] },
+  "zoom-out":         { phrases: ["zoom out"] },
+  "next-tab":         { phrases: ["next tab"] },
+  "prev-tab":         { phrases: ["previous tab"] },
+  "go-back":          { phrases: ["go back"] },
+  "go-forward":       { phrases: ["go forward"] },
+  "new-tab":          { phrases: ["new tab"] },
+  "list-clickable":   { phrases: ["show clickable"], label: "Show Clickables", desc: "Overlay numbered labels on clickable elements" },
+  "close-list":       { phrases: ["hide clickables"], label: "Hide Clickables", desc: "Remove the clickable overlay" },
+  "click-target":     { phrases: ["click"], label: "Click Target", desc: "Say a label or number to click it" },
+  "dictate-start":    { phrases: ["type"], label: "Start Dictation", desc: "Start typing with your voice" },
+  "dictate-stop":     { phrases: ["stop typing"], label: "Stop Dictation", desc: "End voice typing mode" },
 };
 
 function actionToLabel(action) {
+  if (COMMANDS[action]?.label) return COMMANDS[action].label;
   return String(action)
     .split("-")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
 }
 
+function getDefaultPhrases(action) {
+  return COMMANDS[action]?.phrases || [];
+}
+
 function getMergedKeywordMap(customKeywords) {
-  return { ...DEFAULT_KEYWORDS, ...(customKeywords && typeof customKeywords === "object" ? customKeywords : {}) };
+  const defaults = {};
+  for (const action of Object.keys(COMMANDS)) defaults[action] = COMMANDS[action].phrases;
+  return { ...defaults, ...(customKeywords && typeof customKeywords === "object" ? customKeywords : {}) };
 }
 
 function setMainEnabled(mainToggle, statusText, enabled) {
@@ -90,9 +101,13 @@ function setSensitivityRowEnabled(row, slider, enabled) {
   row.style.pointerEvents = enabled ? "auto" : "none";
 }
 
-function setWakewordToggleEnabled(toggle, enabled) {
-  toggle.disabled = !enabled;
-  toggle.style.pointerEvents = enabled ? "auto" : "none";
+function setWakewordRowEnabled(toggle, wakeWordInput, voiceEnabled, wakewordOn) {
+  toggle.disabled = !voiceEnabled;
+  toggle.style.pointerEvents = voiceEnabled ? "auto" : "none";
+  if (wakeWordInput) {
+    wakeWordInput.disabled = !wakewordOn;
+    wakeWordInput.style.opacity = wakewordOn ? "1" : "0.4";
+  }
   const row = toggle.closest(".feature-row");
   if (row) {
     row.style.opacity = enabled ? "1" : "0.4";
@@ -101,16 +116,19 @@ function setWakewordToggleEnabled(toggle, enabled) {
 }
 
 function renderKeywordFields(container) {
-  // Use correct CSS class names matching popup.css
-  const rows = Object.keys(DEFAULT_KEYWORDS)
-    .map(
-      (action) => `
-        <label class="keyword-row">
+  const rows = Object.keys(COMMANDS)
+    .map((action) => {
+      const desc = COMMANDS[action].desc;
+      const descHtml = desc ? `<span class="keyword-row__desc">${desc}</span>` : "";
+      const hasDesc = desc ? ' has-desc' : '';
+      return `
+        <label class="keyword-row${hasDesc}">
           <span class="keyword-row__label">${actionToLabel(action)}</span>
           <input class="keyword-row__input" data-action="${action}" type="text" spellcheck="false" />
+          ${descHtml}
         </label>
-      `
-    )
+      `;
+    })
     .join("");
   container.innerHTML = rows;
 }
@@ -136,7 +154,7 @@ function collectKeywordValues(container) {
       .map((value) => value.trim().toLowerCase())
       .filter(Boolean);
     if (action) {
-      result[action] = phrases.length > 0 ? phrases : DEFAULT_KEYWORDS[action];
+      result[action] = phrases.length > 0 ? phrases : getDefaultPhrases(action);
     }
   });
 
@@ -175,9 +193,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     delayLabel: document.getElementById("delay-label"),
     toggleVoice: document.getElementById("toggle-voice"),
     toggleWakeword: document.getElementById("toggle-wakeword"),
+    wakeWordInput: document.getElementById("wake-word-input"),
     keywordsList: document.getElementById("keywords-list"),
     saveKeywords: document.getElementById("save-keywords"),
     keywordsStatus: document.getElementById("keywords-status"),
+    toggleDebug: document.getElementById("toggle-debug"),
   };
 
   if (Object.values(elements).some((value) => !value)) return;
@@ -229,12 +249,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (faceStatusEl) faceStatusEl.style.display = faceAttentionEnabled ? "" : "none";
     if (elements.faceSensitivityRow) elements.faceSensitivityRow.style.display = faceAttentionEnabled ? "" : "none";
     if (!faceAttentionEnabled) setFaceStatus("disabled");
+    const gestureAccordion = document.getElementById("gesture-accordion");
+    if (gestureAccordion) gestureAccordion.style.display = gesturesEnabled ? "" : "none";
     setMiniToggle(elements.toggleVoice, voiceEnabled);
     setMiniToggle(elements.toggleWakeword, requireWakeWord);
-    setWakewordToggleEnabled(elements.toggleWakeword, voiceEnabled);
+    elements.wakeWordInput.value = state.wakeWord || "afk";
+    setWakewordRowEnabled(elements.toggleWakeword, elements.wakeWordInput, voiceEnabled, requireWakeWord);
+    const wakeWordRow = document.getElementById("wake-word-row");
+    if (wakeWordRow) wakeWordRow.style.display = voiceEnabled ? "" : "none";
+    const voiceKeywordsAccordion = document.getElementById("voice-keywords-accordion");
+    if (voiceKeywordsAccordion) voiceKeywordsAccordion.style.display = voiceEnabled ? "" : "none";
     applyKeywordValues(elements.keywordsList, customKeywords);
     elements.keywordsStatus.textContent =
       Object.keys(customKeywords).length > 0 ? "Custom keywords active" : "Default fields loaded";
+    const debugEnabled = state.debugEnabled !== false;
+    setMiniToggle(elements.toggleDebug, debugEnabled);
   };
 
   const updateState = async (partial) => {
@@ -307,6 +336,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (elements.toggleWakeword.disabled) return;
     const next = elements.toggleWakeword.getAttribute("aria-checked") !== "true";
     updateState({ requireWakeWord: next });
+  });
+
+  elements.wakeWordInput.addEventListener("change", () => {
+    const raw = elements.wakeWordInput.value.trim().toLowerCase().split(/\s+/)[0] || "";
+    const word = raw.replace(/[^a-z]/g, "").slice(0, 12) || "afk";
+    elements.wakeWordInput.value = word;
+    updateState({ wakeWord: word });
+  });
+
+  elements.toggleDebug.addEventListener("click", () => {
+    const next = elements.toggleDebug.getAttribute("aria-checked") !== "true";
+    updateState({ debugEnabled: next });
   });
 
   elements.saveKeywords.addEventListener("click", async () => {

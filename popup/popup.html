@@ -19,27 +19,19 @@
           </svg>
         </div>
         <div class="popup-logo__wordmark">
-          <span class="popup-logo__text">AFK</span>
-          <span class="popup-logo__tag">Hands-Free Browser</span>
+          <div class="popup-logo__title-row">
+            <span class="popup-logo__text">AFK</span>
+            <span class="popup-version">v1.0</span>
+          </div>
+          <span class="popup-logo__tag" id="status-text">Disabled</span>
         </div>
       </div>
-      <div class="popup-version">v1.0</div>
+      <button class="toggle-btn" id="main-toggle" role="switch" aria-checked="false" aria-label="Enable AFK extension">
+        <span class="toggle-btn__track">
+          <span class="toggle-btn__thumb"></span>
+        </span>
+      </button>
     </header>
-
-    <!-- Main toggle -->
-    <section class="popup-toggle-section">
-      <div class="popup-toggle-wrap">
-        <div class="popup-toggle-info">
-          <span class="popup-toggle-label">Extension</span>
-          <span class="popup-toggle-status" id="status-text">Disabled</span>
-        </div>
-        <button class="toggle-btn" id="main-toggle" role="switch" aria-checked="false" aria-label="Enable AFK extension">
-          <span class="toggle-btn__track">
-            <span class="toggle-btn__thumb"></span>
-          </span>
-        </button>
-      </div>
-    </section>
 
     <div id="popup-body" style="display:none">
 
@@ -50,17 +42,83 @@
           <div class="feature-row__icon">✋</div>
           <div class="feature-row__info">
             <span class="feature-row__name">Gesture Control</span>
-            <span class="feature-row__desc">Index + middle finger gestures</span>
+            <span class="feature-row__desc">Hand gestures for browser control</span>
           </div>
           <button class="mini-toggle" id="toggle-gesture" role="switch" aria-checked="true" aria-label="Toggle gesture control">
             <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
           </button>
         </div>
+
+        <!-- Gesture Reference — under gesture toggle -->
+        <div class="accordion" id="gesture-accordion">
+          <button class="accordion__header" aria-expanded="false" aria-controls="acc-gestures">
+            <span class="accordion__label">Gesture Reference</span>
+            <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+              <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+          <div class="accordion__body" id="acc-gestures">
+            <div class="accordion__inner">
+              <div class="gesture-list">
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">☝️</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Cursor</span>
+                    <span class="gesture-item__how">Index finger tracks position</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">🤌</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Click</span>
+                    <span class="gesture-item__how">Quick pinch index + middle</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">👆</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Select &amp; Drag</span>
+                    <span class="gesture-item__how">Pinch then drag</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">✌️</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Scroll</span>
+                    <span class="gesture-item__how">Flick index + middle up / down</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">🖐️</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Zoom In / Out</span>
+                    <span class="gesture-item__how">Open palm = in · Close fist = out</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">🤞</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Tab Switch</span>
+                    <span class="gesture-item__how">Double pinch + drag left / right</span>
+                  </div>
+                </div>
+                <div class="gesture-item">
+                  <span class="gesture-item__glyph">👋</span>
+                  <div class="gesture-item__body">
+                    <span class="gesture-item__action">Back / Forward</span>
+                    <span class="gesture-item__how">Swipe open palm left / right</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div class="feature-row">
           <div class="feature-row__icon">👁</div>
           <div class="feature-row__info">
             <span class="feature-row__name">Face Auto-Pause</span>
-            <span class="feature-row__desc">Pause/resume video when you look away</span>
+            <span class="feature-row__desc">Auto-pause video when you look away</span>
           </div>
           <button class="mini-toggle" id="toggle-face" role="switch" aria-checked="true" aria-label="Toggle face auto-pause">
             <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
@@ -106,114 +164,57 @@
         <div class="feature-row">
           <div class="feature-row__icon">🎙</div>
           <div class="feature-row__info">
-            <span class="feature-row__name">Voice Commands</span>
-            <span class="feature-row__desc">Say "AFK page down", "AFK pause"…</span>
+            <span class="feature-row__name">Voice Control</span>
+            <span class="feature-row__desc">Voice commands for browser control</span>
           </div>
           <button class="mini-toggle" id="toggle-voice" role="switch" aria-checked="true" aria-label="Toggle voice commands">
             <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
           </button>
         </div>
-        <div class="feature-row">
-          <div class="feature-row__icon">🧠</div>
-          <div class="feature-row__info">
-            <span class="feature-row__name">Require "AFK" Wake Word</span>
-            <span class="feature-row__desc">Fewer false triggers in strict mode</span>
+        <div class="voice-sub-row" id="wake-word-row">
+          <div class="voice-sub-row__header">
+            <div class="voice-sub-row__info">
+              <span class="voice-sub-row__name">Wake Word</span>
+              <span class="voice-sub-row__desc">Say before commands to avoid false triggers</span>
+            </div>
+            <button class="mini-toggle" id="toggle-wakeword" role="switch" aria-checked="true" aria-label="Require wake word">
+              <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+            </button>
           </div>
-          <button class="mini-toggle" id="toggle-wakeword" role="switch" aria-checked="true" aria-label="Require AFK wake word">
-            <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
+          <input type="text" id="wake-word-input" class="wake-word-input" maxlength="12" placeholder="afk" spellcheck="false" aria-label="Custom wake word">
+        </div>
+
+        <!-- Voice Keywords — under voice toggle -->
+        <div class="accordion" id="voice-keywords-accordion">
+          <button class="accordion__header" aria-expanded="false" aria-controls="acc-keywords">
+            <span class="accordion__label">Voice Keywords</span>
+            <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
+              <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
           </button>
+          <div class="accordion__body" id="acc-keywords">
+            <div class="accordion__inner">
+              <p class="keywords-help">Format: <code>phrase one, phrase two</code></p>
+              <div id="keywords-list" class="                     list"></div>
+              <div class="keywords-actions">
+                <button id="save-keywords" class="keywords-save">Save Keywords</button>
+                <span id="keywords-status" class="keywords-status">Using defaults</span>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
       <div class="popup-divider"></div>
 
-      <!-- Voice Keywords — accordion -->
-      <div class="accordion">
-        <button class="accordion__header" aria-expanded="false" aria-controls="acc-keywords">
-          <span class="accordion__icon">🎙</span>
-          <span class="accordion__label">Voice Keywords</span>
-          <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
-            <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <div class="accordion__body" id="acc-keywords">
-          <div class="accordion__inner">
-            <p class="keywords-help">Format: <code>action: phrase one, phrase two</code></p>
-            <div id="keywords-list" class="keywords-list"></div>
-            <div class="keywords-actions">
-              <button id="save-keywords" class="keywords-save">Save Keywords</button>
-              <span id="keywords-status" class="keywords-status">Using defaults</span>
-            </div>
-          </div>
+      <div class="feature-row feature-row--small">
+        <div class="feature-row__icon">🐛</div>
+        <div class="feature-row__info">
+          <span class="feature-row__name">Debug Window</span>
         </div>
-      </div>
-
-      <div class="popup-divider"></div>
-
-      <!-- Gesture Reference — accordion -->
-      <div class="accordion">
-        <button class="accordion__header" aria-expanded="false" aria-controls="acc-gestures">
-          <span class="accordion__icon">✋</span>
-          <span class="accordion__label">Gesture Reference</span>
-          <svg class="accordion__chevron" viewBox="0 0 16 16" aria-hidden="true" fill="none">
-            <path d="M4 6l4 4 4-4" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
+        <button class="mini-toggle" id="toggle-debug" role="switch" aria-checked="true" aria-label="Toggle debug window">
+          <span class="mini-toggle__track"><span class="mini-toggle__thumb"></span></span>
         </button>
-        <div class="accordion__body" id="acc-gestures">
-          <div class="accordion__inner">
-            <div class="gesture-list">
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">☝️</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Cursor</span>
-                  <span class="gesture-item__how">Index finger tracks position</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">🤌</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Click</span>
-                  <span class="gesture-item__how">Quick pinch index + middle</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">👆</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Select &amp; Drag</span>
-                  <span class="gesture-item__how">Pinch then drag</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">✌️</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Scroll</span>
-                  <span class="gesture-item__how">Flick index + middle up / down</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">🖐️</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Zoom In / Out</span>
-                  <span class="gesture-item__how">Open palm = in · Close fist = out</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">🤞</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Tab Switch</span>
-                  <span class="gesture-item__how">Double pinch + drag left / right</span>
-                </div>
-              </div>
-              <div class="gesture-item">
-                <span class="gesture-item__glyph">👋</span>
-                <div class="gesture-item__body">
-                  <span class="gesture-item__action">Back / Forward</span>
-                  <span class="gesture-item__how">Swipe open palm left / right</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
     </div><!-- /#popup-body -->

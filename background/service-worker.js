@@ -15,7 +15,9 @@ const DEFAULT_STATE = {
   gazeOffsetY: 0,
   voiceEnabled: true,
   requireWakeWord: true,
+  wakeWord: "afk",
   customKeywords: {},
+  debugEnabled: true,
 };
 let latestAttentionEvent = null;
 let latestFaceStatus = null;

@@ -627,7 +627,7 @@ function updateRuntimeModules() {
     isVoiceCaptureAllowedInThisTab();
   const cameraActive = gesturesEnabled;
 
-  setDebugUIVisible(enabled);
+  setDebugUIVisible(enabled && currentState.debugEnabled !== false);
 
   if (gestureEngine?.setEnabled) {
     gestureEngine.setEnabled(gesturesEnabled);
@@ -647,6 +647,7 @@ function updateRuntimeModules() {
 
   voiceEngine?.setConfig?.({
     requireWakeWord: Boolean(currentState.requireWakeWord),
+    wakeWord: currentState.wakeWord || "afk",
     customKeywords: currentState.customKeywords || {},
   });
 
