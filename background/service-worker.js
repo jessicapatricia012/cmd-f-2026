@@ -1300,6 +1300,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!afkState.enabled || !afkState.gesturesEnabled) return;
 
     if (msg.event === "gesture:closetab") {
+      chrome.runtime.sendMessage({ type: "AFK_TTS", text: "Close tab" }).catch(() => {});
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
         if (id != null) chrome.tabs.remove(id).catch(() => {});

@@ -44,7 +44,7 @@ app.get("/scribe-token", async (_req, res) => {
 });
 
 app.post("/tts", async (req, res) => {
-  const { text, voice_id = "JBFqnCBsd6RMkjVDRZzb" } = req.body;
+  const { text, voice_id = "21m00Tcm4TlvDq8ikWAM" } = req.body;
   if (!elevenlabs) {
     return res
       .status(503)
