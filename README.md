@@ -100,10 +100,10 @@ Key architectural decisions:
 
 ## What's next for AFK
 
-- [ ] Custom gesture remapping — user-defined gesture-to-action bindings
-- [ ] Per-site profiles — different bindings on YouTube vs. Google Docs vs. coding environments
-- [ ] Two-hand gestures — pinch-to-zoom, two-hand swipe for fullscreen
-- [ ] Expanded multilingual support — pre-built command packs for major languages out of the box
-- [ ] Accessibility partnerships — optimize with occupational therapists for mobility impairment use cases
-- [ ] Firefox + Edge support — core architecture is already browser-agnostic
-- [ ] On-device wake-word detection for voice activation without always-on listening
+- Custom gesture remapping — user-defined gesture-to-action bindings
+- Per-site profiles — different bindings on YouTube vs. Google Docs vs. coding environments
+- Two-hand gestures — pinch-to-zoom, two-hand swipe for fullscreen
+- Expanded multilingual support — pre-built command packs for major languages out of the box
+- Accessibility partnerships — optimize with occupational therapists for mobility impairment use cases
+- Firefox + Edge support — core architecture is already browser-agnostic
+- On-device wake-word detection for voice activation without always-on listening
