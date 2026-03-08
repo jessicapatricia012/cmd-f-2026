@@ -227,14 +227,11 @@ async function emitCommand(source, action, meta = {}) {
 
 // ── Clickable overlay ──────────────────────────────────────────────────────
 
-let clickableOverlayEl = null;
 const clickableBadges = [];
 
 function removeClickableOverlay() {
-  if (clickableOverlayEl) {
-    clickableOverlayEl.remove();
-    clickableOverlayEl = null;
-  }
+  // Remove stale panel if it exists from a previous version
+  document.getElementById("afk-clickable-panel")?.remove();
   for (const badge of clickableBadges) {
     badge.remove();
   }
@@ -248,60 +245,6 @@ function showClickableOverlay(items) {
 
   // Store items so voice "click-number" can reference them without re-querying DOM
   window.__afkClickableItems = items;
-
-  // ── Floating panel ────────────────────────────────────────────────────────
-  const panel = document.createElement("div");
-  panel.id = "afk-clickable-panel";
-  panel.style.cssText = [
-    "position:fixed",
-    "top:50%",
-    "right:16px",
-    "transform:translateY(-50%)",
-    "z-index:2147483647",
-    "width:240px",
-    "max-height:70vh",
-    "overflow-y:auto",
-    "background:rgba(2,6,23,.96)",
-    "border:1px solid #334155",
-    "border-radius:10px",
-    "color:#e2e8f0",
-    "font:13px/1.4 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial",
-    "box-shadow:0 12px 32px rgba(0,0,0,.45)",
-    "padding:8px 0",
-  ].join(";");
-
-  const header = document.createElement("div");
-  header.style.cssText = "padding:6px 12px 8px;font-size:11px;font-weight:700;letter-spacing:.05em;color:#94a3b8;border-bottom:1px solid #1e293b;display:flex;justify-content:space-between;align-items:center;";
-  header.innerHTML = `<span>CLICKABLE ELEMENTS</span><span style="font-size:10px;color:#64748b;font-weight:400;">say "click clickable N"</span><button id="afk-clickable-close" style="background:none;border:none;color:#94a3b8;cursor:pointer;font-size:14px;line-height:1;padding:0;">✕</button>`;
-  panel.appendChild(header);
-
-  for (const item of items) {
-    const row = document.createElement("div");
-    row.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;transition:background .12s;";
-    row.onmouseenter = () => { row.style.background = "rgba(99,102,241,.15)"; };
-    row.onmouseleave = () => { row.style.background = ""; };
-    row.onclick = () => {
-      removeClickableOverlay();
-      sendRuntimeMessage({ type: CHANNEL.COMMAND, payload: { action: "click-number", clickIndex: item.index } });
-    };
-
-    const badge = document.createElement("span");
-    badge.style.cssText = "min-width:20px;height:20px;border-radius:50%;background:#6366f1;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;";
-    badge.textContent = item.index;
-
-    const label = document.createElement("span");
-    label.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#e2e8f0;";
-    label.textContent = item.label;
-
-    row.appendChild(badge);
-    row.appendChild(label);
-    panel.appendChild(row);
-  }
-
-  document.documentElement.appendChild(panel);
-  clickableOverlayEl = panel;
-
-  panel.querySelector("#afk-clickable-close")?.addEventListener("click", removeClickableOverlay);
 
   // ── Numbered badges on page ───────────────────────────────────────────────
   for (const item of items) {

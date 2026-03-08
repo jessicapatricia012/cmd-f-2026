@@ -32,7 +32,7 @@ const DEFAULT_COMMAND_ALIASES = [
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
   { action: "list-clickable", phrases: ["what can i click", "show clickable", "list clickable", "show buttons", "show clickables"] },
-  { action: "close-list", phrases: ["close list", "hide list", "dismiss list", "close overlay"] },
+  { action: "close-list", phrases: ["close list", "hide list", "dismiss list", "close overlay", "hide clickable", "hide clickables", "close clickable", "close clickables"] },
 ];
 
 function normalizePhrase(phrase) {
