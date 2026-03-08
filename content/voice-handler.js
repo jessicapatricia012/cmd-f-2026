@@ -47,6 +47,7 @@ const DEFAULT_COMMAND_ALIASES = [
     action: "click-target",
     phrases: ["click", "click that", "click this", "select this"],
   },
+  { action: "enter-key", phrases: ["enter", "press enter", "hit enter", "submit"] },
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },

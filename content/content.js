@@ -956,6 +956,23 @@ function executePageCommand(action, meta = {}) {
       if (focused && focused !== document.body) focused.click();
       break;
     }
+    case "dictate-start": {
+      const target = lastFocusedEditable || (isEditableEl(document.activeElement) ? document.activeElement : null);
+      voiceEngine?.setDictationTarget?.(target);
+      break;
+    }
+    case "enter-key": {
+      const target = document.activeElement || document.body;
+      ["keydown", "keypress", "keyup"].forEach((type) => {
+        target.dispatchEvent(
+          new KeyboardEvent(type, {
+            key: "Enter", code: "Enter", keyCode: 13,
+            bubbles: true, cancelable: true,
+          }),
+        );
+      });
+      break;
+    }
     case "click-text": {
       if (!meta.labelText) break;
       const needle = meta.labelText.toLowerCase();
