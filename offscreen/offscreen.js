@@ -108,6 +108,21 @@ const CFG = {
   ATTENTION_YAW_RATIO_MAX: 0.48,
 };
 
+const SENSITIVITY_PRESETS = {
+  1: { ATTENTION_AWAY_STABLE_MS: 2200, ATTENTION_LOOKING_STABLE_MS: 300, ATTENTION_FACE_GRACE_MS: 2000, ATTENTION_CENTER_X_MIN: 0.20, ATTENTION_CENTER_X_MAX: 0.80, ATTENTION_YAW_RATIO_MAX: 0.65 },
+  2: { ATTENTION_AWAY_STABLE_MS: 1500, ATTENTION_LOOKING_STABLE_MS: 380, ATTENTION_FACE_GRACE_MS: 1600, ATTENTION_CENTER_X_MIN: 0.27, ATTENTION_CENTER_X_MAX: 0.73, ATTENTION_YAW_RATIO_MAX: 0.56 },
+  3: { ATTENTION_AWAY_STABLE_MS: 900,  ATTENTION_LOOKING_STABLE_MS: 450, ATTENTION_FACE_GRACE_MS: 1200, ATTENTION_CENTER_X_MIN: 0.34, ATTENTION_CENTER_X_MAX: 0.66, ATTENTION_YAW_RATIO_MAX: 0.48 },
+  4: { ATTENTION_AWAY_STABLE_MS: 500,  ATTENTION_LOOKING_STABLE_MS: 500, ATTENTION_FACE_GRACE_MS: 800,  ATTENTION_CENTER_X_MIN: 0.38, ATTENTION_CENTER_X_MAX: 0.62, ATTENTION_YAW_RATIO_MAX: 0.40 },
+  5: { ATTENTION_AWAY_STABLE_MS: 250,  ATTENTION_LOOKING_STABLE_MS: 600, ATTENTION_FACE_GRACE_MS: 500,  ATTENTION_CENTER_X_MIN: 0.42, ATTENTION_CENTER_X_MAX: 0.58, ATTENTION_YAW_RATIO_MAX: 0.32 },
+};
+
+function applyAttentionSensitivity(level) {
+  const preset = SENSITIVITY_PRESETS[level] || SENSITIVITY_PRESETS[3];
+  Object.assign(CFG, preset);
+}
+
+let gazeOffsetX = 0;
+
 // ---------------------------------------------------------------------------
 // GestureHandler
 // ---------------------------------------------------------------------------
@@ -768,10 +783,11 @@ class GestureHandler {
     if (!leftEyeOuter || !rightEyeOuter || !noseTip) return false;
 
     const eyeMidX = (leftEyeOuter.x + rightEyeOuter.x) / 2;
+    const correctedX = eyeMidX + gazeOffsetX;
     const eyeSpan = Math.abs(rightEyeOuter.x - leftEyeOuter.x);
     const centered =
-      eyeMidX >= CFG.ATTENTION_CENTER_X_MIN &&
-      eyeMidX <= CFG.ATTENTION_CENTER_X_MAX;
+      correctedX >= CFG.ATTENTION_CENTER_X_MIN &&
+      correctedX <= CFG.ATTENTION_CENTER_X_MAX;
     if (eyeSpan <= 0.0001) return centered;
 
     const yawRatio = Math.abs((noseTip.x - eyeMidX) / (eyeSpan / 2));
@@ -886,6 +902,15 @@ _ttsWorker.onmessage = async (e) => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'AFK_SET_ATTENTION') {
     handler.setAttentionPaused(!msg.enabled);
+    if (typeof msg.sensitivity === 'number') {
+      applyAttentionSensitivity(msg.sensitivity);
+    }
+    if (typeof msg.delay === 'number' && msg.delay >= 200) {
+      CFG.ATTENTION_AWAY_STABLE_MS = msg.delay;
+    }
+    if (typeof msg.gazeOffsetX === 'number') {
+      gazeOffsetX = msg.gazeOffsetX;
+    }
   }
   if (msg.type === 'AFK_TTS' && msg.text) {
     _ttsWorker.postMessage({ text: msg.text });

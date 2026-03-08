@@ -2,7 +2,7 @@
 // Handles: browser speech recognition and command filtering.
 // Commands fire as soon as they appear in interim transcripts.
 
-const WAKE_WORD = "afk";
+let WAKE_WORD = "afk";
 const COMMAND_COOLDOWN_MS = 900;
 const RESTART_BASE_DELAY_MS = 700;
 const RESTART_MAX_DELAY_MS = 4000;
@@ -11,92 +11,30 @@ const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const DEFAULT_COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down", "scroll down", "go down"] },
-  { action: "page-up", phrases: ["page up", "scroll up", "go up"] },
-  { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
-  { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
-  {
-    action: "video-play",
-    phrases: ["play", "resume", "play video", "video play"],
-  },
-  {
-    action: "video-pause",
-    phrases: [
-      "pause",
-      "pause video",
-      "paused video",
-      "video pause",
-      "stop video",
-    ],
-  },
-  { action: "video-next", phrases: ["next video", "skip video", "video next"] },
-  { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
-  {
-    action: "video-unmute",
-    phrases: ["unmute", "unmute video", "video unmute"],
-  },
-  { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
-  {
-    action: "fullscreen-enter",
-    phrases: ["enter fullscreen", "enter full screen"],
-  },
-  {
-    action: "fullscreen-exit",
-    phrases: ["exit full screen", "leave full screen"],
-  },
-  {
-    action: "click-target",
-    phrases: ["click", "click that", "click this", "select this"],
-  },
+  { action: "page-down", phrases: ["scroll down"] },
+  { action: "page-up", phrases: ["scroll up"] },
+  { action: "go-home", phrases: ["home key"] },
+  { action: "go-end", phrases: ["end key"] },
+  { action: "video-play", phrases: ["play"] },
+  { action: "video-pause", phrases: ["pause"] },
+  { action: "video-next", phrases: ["next video"] },
+  { action: "video-mute", phrases: ["mute video"] },
+  { action: "video-unmute", phrases: ["unmute video"] },
+  { action: "page-refresh", phrases: ["refresh"] },
+  { action: "fullscreen-enter", phrases: ["enter fullscreen", "enter full screen"]},
+  { action: "fullscreen-exit", phrases: ["exit full screen"]},
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
-  { action: "next-tab", phrases: ["next tab", "tab next"] },
-  { action: "prev-tab", phrases: ["previous tab", "prev tab", "back tab"] },
+  { action: "next-tab", phrases: ["next tab"] },
+  { action: "prev-tab", phrases: ["previous tab"] },
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
-  { action: "new-tab", phrases: ["new tab", "open tab"] },
-  {
-    action: "list-clickable",
-    phrases: [
-      "what can i click",
-      "show clickable",
-      "list clickable",
-      "show buttons",
-      "show clickables",
-    ],
-  },
-  {
-    action: "close-list",
-    phrases: [
-      "close list",
-      "hide list",
-      "dismiss list",
-      "close overlay",
-      "hide clickable",
-      "hide clickables",
-      "close clickable",
-      "close clickables",
-    ],
-  },
-  {
-    action: "dictate-start",
-    phrases: [
-      "start writing",
-      "start dictation",
-      "start typing",
-      "begin writing",
-    ],
-  },
-  {
-    action: "dictate-stop",
-    phrases: [
-      "stop writing",
-      "stop dictation",
-      "stop typing",
-      "done writing",
-      "done typing",
-    ],
-  },
+  { action: "new-tab", phrases: ["new tab"] },
+  { action: "list-clickable", phrases: ["show clickable"] },
+  { action: "close-list", phrases: ["hide clickables"]},
+  { action: "click-target", phrases: ["click"] },
+  { action: "dictate-start", phrases: ["type"] },
+  { action: "dictate-stop", phrases: ["stop typing"] },
 ];
 
 function normalizePhrase(phrase) {
@@ -302,7 +240,7 @@ function detectCommands(
 
   // Detect "afk press/hit/tap/type/key <key>" pattern
   const keyPattern = requireWakeWord
-    ? /\bafk\s+(?:press|hit|tap|type|key)\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\b/g
+    ? new RegExp(`\\b${WAKE_WORD}\\s+(?:press|hit|tap|type|key)\\s+([a-z0-9]+(?:\\s+[a-z0-9]+)?)\\b`, "g")
     : /\b(?:press|hit|tap|type|key)\s+([a-z0-9]+(?:\s+[a-z0-9]+)?)\b/g;
   let keyMatch = keyPattern.exec(normalized);
   while (keyMatch) {
@@ -347,7 +285,7 @@ function detectCommands(
   };
   const numWords = Object.keys(WORD_TO_NUM).join("|");
   const clickNumberPattern = requireWakeWord
-    ? new RegExp(`\\bafk\\s+click\\s+clickable\\s+(\\d+|${numWords})\\b`, "g")
+    ? new RegExp(`\\b${WAKE_WORD}\\s+click\\s+clickable\\s+(\\d+|${numWords})\\b`, "g")
     : new RegExp(`\\bclick\\s+clickable\\s+(\\d+|${numWords})\\b`, "g");
   let clickNumberMatch = clickNumberPattern.exec(normalized);
   while (clickNumberMatch) {
@@ -368,7 +306,7 @@ function detectCommands(
   // Detect "afk click <label text>" pattern — e.g. "afk click sign in"
   // Strips trailing "button" or "link" suffix so natural speech works.
   const clickTextPattern = requireWakeWord
-    ? /\bafk\s+click\s+(.+?)(?:\s+button|\s+link)?\s*$/g
+    ? new RegExp(`\\b${WAKE_WORD}\\s+click\\s+(.+?)(?:\\s+button|\\s+link)?\\s*$`, "g")
     : /\bclick\s+(.+?)(?:\s+button|\s+link)?\s*$/g;
   let clickTextMatch = clickTextPattern.exec(normalized);
   while (clickTextMatch) {
@@ -717,9 +655,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     // e.g. "AFK search for dogs" / "AFK find weather" / "AFK look up recipes"
     const vsRe = requireWakeWord
       ? [
-          /\bafk\s+search(?:\s+for)?\s+(.+?)\s*$/,
-          /\bafk\s+look\s+(?:up|for)\s+(.+?)\s*$/,
-          /\bafk\s+find\s+(.+?)\s*$/,
+          new RegExp(`\\b${WAKE_WORD}\\s+search(?:\\s+for)?\\s+(.+?)\\s*$`),
+          new RegExp(`\\b${WAKE_WORD}\\s+look\\s+(?:up|for)\\s+(.+?)\\s*$`),
+          new RegExp(`\\b${WAKE_WORD}\\s+find\\s+(.+?)\\s*$`),
         ]
       : [
           /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
@@ -1026,6 +964,9 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     if (typeof nextConfig.requireWakeWord === "boolean") {
       requireWakeWord = nextConfig.requireWakeWord;
       setStatus(requireWakeWord ? "wake-word:on" : "wake-word:off");
+    }
+    if (typeof nextConfig.wakeWord === "string" && nextConfig.wakeWord.trim()) {
+      WAKE_WORD = nextConfig.wakeWord.trim().toLowerCase().split(/\s+/)[0];
     }
     if (
       nextConfig.customKeywords &&

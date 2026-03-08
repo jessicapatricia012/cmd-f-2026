@@ -46,8 +46,6 @@ let attentionPauseTimer = null;
 let eyeAttentionState = "unknown";
 let eyeAwayDebounceTimer = null;
 let eyeBackDebounceTimer = null;
-let eyeAttentionBadgeEl = null;
-let eyeGazeDotEl = null;
 let eyeAttentionSignalSeen = false;
 let eyeAttentionInitTimer = null;
 let lastVideoPresence = null;
@@ -73,67 +71,8 @@ function hideCommandToast({ flyUp = false } = {}) {
     : "translateX(-50%) translateY(10px)";
 }
 
-function ensureEyeAttentionBadge() {
-  if (eyeAttentionBadgeEl) return eyeAttentionBadgeEl;
-  const el = document.createElement("div");
-  el.id = "afk-eye-attention-badge";
-  el.style.cssText = [
-    "position:fixed",
-    "left:12px",
-    "top:12px",
-    "z-index:2147483647",
-    "padding:6px 10px",
-    "border-radius:999px",
-    "font:700 11px/1.1 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial",
-    "letter-spacing:.02em",
-    "border:1px solid #334155",
-    "background:rgba(15,23,42,.9)",
-    "color:#cbd5e1",
-    "box-shadow:0 8px 20px rgba(0,0,0,.35)",
-    "pointer-events:none",
-    "user-select:none",
-  ].join(";");
-  document.documentElement.appendChild(el);
-  eyeAttentionBadgeEl = el;
-  return el;
-}
 
-function ensureEyeGazeDot() {
-  if (eyeGazeDotEl) return eyeGazeDotEl;
-  const dot = document.createElement("div");
-  dot.id = "afk-eye-gaze-dot";
-  dot.style.cssText = [
-    "position:fixed",
-    "left:0",
-    "top:0",
-    "width:12px",
-    "height:12px",
-    "border-radius:50%",
-    "background:#22d3ee",
-    "border:2px solid #0e7490",
-    "box-shadow:0 0 0 2px rgba(15,23,42,.6), 0 0 14px rgba(34,211,238,.65)",
-    "transform:translate(-50%,-50%)",
-    "z-index:2147483647",
-    "pointer-events:none",
-    "opacity:0",
-    "transition:opacity .12s ease",
-  ].join(";");
-  document.documentElement.appendChild(dot);
-  eyeGazeDotEl = dot;
-  return dot;
-}
-
-function updateEyeGazeDot(detail = {}) {
-  const x = Number(detail?.normX);
-  const y = Number(detail?.normY);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-  const dot = ensureEyeGazeDot();
-  const px = Math.max(0, Math.min(window.innerWidth, x * window.innerWidth));
-  const py = Math.max(0, Math.min(window.innerHeight, y * window.innerHeight));
-  dot.style.left = `${px}px`;
-  dot.style.top = `${py}px`;
-  dot.style.opacity = "1";
-}
+function updateEyeGazeDot() {}
 
 function ensureHandCursorDot() {
   if (handCursorDotEl) return handCursorDotEl;
@@ -172,74 +111,7 @@ function updateHandCursorDot(detail = {}) {
   dot.style.opacity = "1";
 }
 
-function renderEyeAttentionBadge(state, detail = {}) {
-  const el = ensureEyeAttentionBadge();
-  const stableForMs = Number(detail?.stableForMs) || 0;
-  const stableText = stableForMs > 0 ? ` ${Math.round(stableForMs)}ms` : "";
-
-  if (state === "looking") {
-    el.textContent = `EYE: LOOKING${stableText}`;
-    el.style.background = "rgba(6,78,59,.92)";
-    el.style.borderColor = "#065f46";
-    el.style.color = "#bbf7d0";
-    return;
-  }
-
-  if (state === "away") {
-    el.textContent = `EYE: AWAY${stableText}`;
-    el.style.background = "rgba(127,29,29,.92)";
-    el.style.borderColor = "#7f1d1d";
-    el.style.color = "#fecaca";
-    return;
-  }
-
-  if (state === "unsupported") {
-    const reason = detail?.reason ? ` (${detail.reason})` : "";
-    el.textContent = `EYE: UNSUPPORTED${reason}`;
-    el.style.background = "rgba(120,53,15,.94)";
-    el.style.borderColor = "#92400e";
-    el.style.color = "#fed7aa";
-    return;
-  }
-
-  if (state === "no-face") {
-    el.textContent = "EYE: NO FACE";
-    el.style.background = "rgba(127,29,29,.92)";
-    el.style.borderColor = "#7f1d1d";
-    el.style.color = "#fecaca";
-    return;
-  }
-
-  if (state === "face-detected") {
-    el.textContent = "EYE: FACE DETECTED";
-    el.style.background = "rgba(30,58,138,.92)";
-    el.style.borderColor = "#1e40af";
-    el.style.color = "#bfdbfe";
-    return;
-  }
-
-  if (state === "face-uncertain") {
-    el.textContent = "EYE: FACE UNCERTAIN";
-    el.style.background = "rgba(30,58,138,.92)";
-    el.style.borderColor = "#1e40af";
-    el.style.color = "#bfdbfe";
-    return;
-  }
-
-  if (state === "ready") {
-    const engine = detail?.engine ? ` (${detail.engine})` : "";
-    el.textContent = `EYE: READY${engine}`;
-    el.style.background = "rgba(6,78,59,.92)";
-    el.style.borderColor = "#065f46";
-    el.style.color = "#bbf7d0";
-    return;
-  }
-
-  el.textContent = "EYE: UNKNOWN";
-  el.style.background = "rgba(15,23,42,.9)";
-  el.style.borderColor = "#334155";
-  el.style.color = "#cbd5e1";
-}
+function renderEyeAttentionBadge() {}
 
 function initDebugPanel() {
   if (document.getElementById("afk-debug-panel")) {
@@ -403,11 +275,7 @@ function setDebugUIVisible(visible) {
     visible &&
     currentState.faceAttentionEnabled !== false &&
     lastVideoPresence === true;
-  if (eyeAttentionBadgeEl)
-    eyeAttentionBadgeEl.style.display = faceVisible ? "" : "none";
-  if (eyeGazeDotEl) eyeGazeDotEl.style.display = faceVisible ? "" : "none";
-  // Keep only the primary blue cursor overlay to avoid duplicate cursor visuals.
-  if (handCursorDotEl) handCursorDotEl.style.display = "none";
+  if (handCursorDotEl) handCursorDotEl.style.display = visible ? "" : "none";
 }
 
 function getCommandLabel(action, meta = {}) {
@@ -660,14 +528,7 @@ function handleEyeAttentionStatus(detail = {}) {
   if (visualStates.has(state)) {
     renderEyeAttentionBadge(state, detail);
   }
-  if (state === "ready") {
-    const dot = ensureEyeGazeDot();
-    dot.style.left = `${Math.round(window.innerWidth * 0.5)}px`;
-    dot.style.top = `${Math.round(window.innerHeight * 0.5)}px`;
-    dot.style.opacity = "0.35";
-  }
   if (state === "no-face" || state === "unsupported") {
-    if (eyeGazeDotEl) eyeGazeDotEl.style.opacity = "0";
   }
   if (state === "unsupported") {
     debugLogFace(`unsupported: ${detail?.reason || "unknown"}`, "warn");
@@ -779,7 +640,7 @@ function updateRuntimeModules() {
     isVoiceCaptureAllowedInThisTab();
   const cameraActive = gesturesEnabled;
 
-  setDebugUIVisible(enabled);
+  setDebugUIVisible(enabled && currentState.debugEnabled !== false);
 
   if (gestureEngine?.setEnabled) {
     gestureEngine.setEnabled(gesturesEnabled);
@@ -799,6 +660,7 @@ function updateRuntimeModules() {
 
   voiceEngine?.setConfig?.({
     requireWakeWord: Boolean(currentState.requireWakeWord),
+    wakeWord: currentState.wakeWord || "afk",
     customKeywords: currentState.customKeywords || {},
   });
 
