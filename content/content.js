@@ -3,6 +3,7 @@
 
 const CHANNEL = {
   GET_STATE: "AFK_GET_STATE",
+  GET_ATTENTION_STATUS: "AFK_GET_ATTENTION_STATUS",
   SET_STATE: "AFK_SET_STATE",
   COMMAND: "AFK_COMMAND",
   STATE_UPDATED: "AFK_STATE_UPDATED",
@@ -11,6 +12,7 @@ const CHANNEL = {
 const SOURCE = {
   GESTURE: "gesture",
   VOICE: "voice",
+  SYSTEM: "system",
 };
 
 const INITIAL_STATE = {
@@ -30,6 +32,15 @@ let commandToastEl = null;
 let commandToastTimer = null;
 let commandToastSwapTimer = null;
 let lastCommandToastKey = "";
+let attentionAutoPaused = false;
+let attentionPauseTimer = null;
+let eyeAttentionState = "unknown";
+let eyeAwayDebounceTimer = null;
+let eyeBackDebounceTimer = null;
+let eyeAttentionBadgeEl = null;
+let eyeGazeDotEl = null;
+let eyeAttentionSignalSeen = false;
+let eyeAttentionInitTimer = null;
 
 function hideCommandToast({ flyUp = false } = {}) {
   if (!commandToastEl) return;
@@ -37,6 +48,137 @@ function hideCommandToast({ flyUp = false } = {}) {
   commandToastEl.style.transform = flyUp
     ? "translateX(-50%) translateY(-12px)"
     : "translateX(-50%) translateY(10px)";
+}
+
+function ensureEyeAttentionBadge() {
+  if (eyeAttentionBadgeEl) return eyeAttentionBadgeEl;
+  const el = document.createElement("div");
+  el.id = "afk-eye-attention-badge";
+  el.style.cssText = [
+    "position:fixed",
+    "left:12px",
+    "top:12px",
+    "z-index:2147483647",
+    "padding:6px 10px",
+    "border-radius:999px",
+    "font:700 11px/1.1 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial",
+    "letter-spacing:.02em",
+    "border:1px solid #334155",
+    "background:rgba(15,23,42,.9)",
+    "color:#cbd5e1",
+    "box-shadow:0 8px 20px rgba(0,0,0,.35)",
+    "pointer-events:none",
+    "user-select:none",
+  ].join(";");
+  document.documentElement.appendChild(el);
+  eyeAttentionBadgeEl = el;
+  return el;
+}
+
+function ensureEyeGazeDot() {
+  if (eyeGazeDotEl) return eyeGazeDotEl;
+  const dot = document.createElement("div");
+  dot.id = "afk-eye-gaze-dot";
+  dot.style.cssText = [
+    "position:fixed",
+    "left:0",
+    "top:0",
+    "width:12px",
+    "height:12px",
+    "border-radius:50%",
+    "background:#22d3ee",
+    "border:2px solid #0e7490",
+    "box-shadow:0 0 0 2px rgba(15,23,42,.6), 0 0 14px rgba(34,211,238,.65)",
+    "transform:translate(-50%,-50%)",
+    "z-index:2147483647",
+    "pointer-events:none",
+    "opacity:0",
+    "transition:opacity .12s ease",
+  ].join(";");
+  document.documentElement.appendChild(dot);
+  eyeGazeDotEl = dot;
+  return dot;
+}
+
+function updateEyeGazeDot(detail = {}) {
+  const x = Number(detail?.normX);
+  const y = Number(detail?.normY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  const dot = ensureEyeGazeDot();
+  const px = Math.max(0, Math.min(window.innerWidth, x * window.innerWidth));
+  const py = Math.max(0, Math.min(window.innerHeight, y * window.innerHeight));
+  dot.style.left = `${px}px`;
+  dot.style.top = `${py}px`;
+  dot.style.opacity = "1";
+}
+
+function renderEyeAttentionBadge(state, detail = {}) {
+  const el = ensureEyeAttentionBadge();
+  const stableForMs = Number(detail?.stableForMs) || 0;
+  const stableText = stableForMs > 0 ? ` ${Math.round(stableForMs)}ms` : "";
+
+  if (state === "looking") {
+    el.textContent = `EYE: LOOKING${stableText}`;
+    el.style.background = "rgba(6,78,59,.92)";
+    el.style.borderColor = "#065f46";
+    el.style.color = "#bbf7d0";
+    return;
+  }
+
+  if (state === "away") {
+    el.textContent = `EYE: AWAY${stableText}`;
+    el.style.background = "rgba(127,29,29,.92)";
+    el.style.borderColor = "#7f1d1d";
+    el.style.color = "#fecaca";
+    return;
+  }
+
+  if (state === "unsupported") {
+    const reason = detail?.reason ? ` (${detail.reason})` : "";
+    el.textContent = `EYE: UNSUPPORTED${reason}`;
+    el.style.background = "rgba(120,53,15,.94)";
+    el.style.borderColor = "#92400e";
+    el.style.color = "#fed7aa";
+    return;
+  }
+
+  if (state === "no-face") {
+    el.textContent = "EYE: NO FACE";
+    el.style.background = "rgba(127,29,29,.92)";
+    el.style.borderColor = "#7f1d1d";
+    el.style.color = "#fecaca";
+    return;
+  }
+
+  if (state === "face-detected") {
+    el.textContent = "EYE: FACE DETECTED";
+    el.style.background = "rgba(30,58,138,.92)";
+    el.style.borderColor = "#1e40af";
+    el.style.color = "#bfdbfe";
+    return;
+  }
+
+  if (state === "face-uncertain") {
+    el.textContent = "EYE: FACE UNCERTAIN";
+    el.style.background = "rgba(30,58,138,.92)";
+    el.style.borderColor = "#1e40af";
+    el.style.color = "#bfdbfe";
+    return;
+  }
+
+  if (state === "ready") {
+    const engine = detail?.engine ? ` (${detail.engine})` : "";
+    el.textContent = `EYE: READY${engine}`;
+    el.style.background = "rgba(6,78,59,.92)";
+    el.style.borderColor = "#065f46";
+    el.style.color = "#bbf7d0";
+    return;
+  }
+
+  el.textContent = "EYE: UNKNOWN";
+  el.style.background = "rgba(15,23,42,.9)";
+  el.style.borderColor = "#334155";
+  el.style.color = "#cbd5e1";
 }
 
 function initDebugPanel() {
@@ -184,6 +326,7 @@ function mergeState(nextState) {
 function isAllowedByMode(source) {
   if (source === SOURCE.GESTURE) return currentState.gesturesEnabled;
   if (source === SOURCE.VOICE) return currentState.voiceEnabled;
+  if (source === SOURCE.SYSTEM) return true;
   return false;
 }
 
@@ -235,6 +378,128 @@ async function emitCommand(source, action, meta = {}) {
     "error",
   );
   console.warn("[AFK] Command failed:", result?.error || "unknown error");
+}
+
+function isVideoPlayingNow() {
+  const ytPlayer = document.getElementById("movie_player");
+  if (ytPlayer && typeof ytPlayer.getPlayerState === "function") {
+    if (ytPlayer.getPlayerState() === 1) return true;
+  }
+
+  const videos = Array.from(document.querySelectorAll("video"));
+  return videos.some((video) => !video.paused && !video.ended && video.readyState >= 2);
+}
+
+async function maybePauseOnAttentionLost(reason = "attention-lost") {
+  if (!currentState.enabled || attentionAutoPaused) return;
+  if (!isVideoPlayingNow()) return;
+  if (eyeAttentionState === "unknown") return;
+
+  await emitCommand(SOURCE.SYSTEM, "video-pause", { reason });
+  attentionAutoPaused = true;
+  debugLog("attention auto-pause: video paused", "warn");
+}
+
+async function maybeResumeOnAttentionBack(reason = "attention-back") {
+  if (!currentState.enabled || !attentionAutoPaused) return;
+  if (eyeAttentionState === "away") return;
+
+  await emitCommand(SOURCE.SYSTEM, "video-play", { reason });
+  attentionAutoPaused = false;
+  debugLog("attention auto-resume: video resumed", "ok");
+}
+
+function handleEyeAttentionEvent(eventName, detail = {}) {
+  eyeAttentionSignalSeen = true;
+
+  if (eventName === "attention:look-away") {
+    eyeAttentionState = "away";
+    renderEyeAttentionBadge("away", detail);
+    debugLog("eye attention: look-away", "warn");
+    if (eyeBackDebounceTimer) {
+      clearTimeout(eyeBackDebounceTimer);
+      eyeBackDebounceTimer = null;
+    }
+    if (eyeAwayDebounceTimer) clearTimeout(eyeAwayDebounceTimer);
+    eyeAwayDebounceTimer = setTimeout(() => {
+      eyeAwayDebounceTimer = null;
+      maybePauseOnAttentionLost("eye-look-away");
+    }, 180);
+    return;
+  }
+
+  if (eventName === "attention:look-at") {
+    eyeAttentionState = "looking";
+    renderEyeAttentionBadge("looking", detail);
+    debugLog("eye attention: look-at", "ok");
+    if (eyeAwayDebounceTimer) {
+      clearTimeout(eyeAwayDebounceTimer);
+      eyeAwayDebounceTimer = null;
+    }
+    if (eyeBackDebounceTimer) clearTimeout(eyeBackDebounceTimer);
+    eyeBackDebounceTimer = setTimeout(() => {
+      eyeBackDebounceTimer = null;
+      maybeResumeOnAttentionBack("eye-look-at");
+    }, 220);
+  }
+}
+
+function handleEyeAttentionStatus(detail = {}) {
+  const state = String(detail?.state || "").trim();
+  if (!state) return;
+  eyeAttentionSignalSeen = true;
+  const visualStates = new Set([
+    "looking",
+    "away",
+    "unsupported",
+    "no-face",
+    "face-detected",
+    "face-uncertain",
+    "ready",
+  ]);
+  if (visualStates.has(state)) {
+    renderEyeAttentionBadge(state, detail);
+  }
+  if (state === "ready") {
+    const dot = ensureEyeGazeDot();
+    dot.style.left = `${Math.round(window.innerWidth * 0.5)}px`;
+    dot.style.top = `${Math.round(window.innerHeight * 0.5)}px`;
+    dot.style.opacity = "0.35";
+  }
+  if (state === "no-face" || state === "unsupported") {
+    if (eyeGazeDotEl) eyeGazeDotEl.style.opacity = "0";
+  }
+  if (state === "unsupported") {
+    debugLog(`eye attention unsupported: ${detail?.reason || "unknown"}`, "warn");
+  } else if (state === "ready") {
+    debugLog(`eye attention ready: ${detail?.engine || "unknown engine"}`, "ok");
+  } else if (
+    state === "mesh-send" ||
+    state === "mesh-send-ok" ||
+    state === "mesh-results"
+  ) {
+    const extra =
+      detail?.reason
+        ? ` (${detail.reason})`
+        : detail?.points
+          ? ` (points=${detail.points})`
+          : "";
+    const type = state === "mesh-send-failed" ? "error" : "info";
+    debugLog(`eye attention ${state}${extra}`, type);
+  }
+}
+
+function handleAttentionAction(detail = {}) {
+  const action = detail?.action || detail?.eventName || "attention";
+  if (detail?.ok === false) {
+    debugLog(`attention action failed: ${action} (${detail?.error || detail?.reason || "unknown"})`, "error");
+    return;
+  }
+  if (detail?.skipped) {
+    debugLog(`attention action skipped: ${action} (${detail?.reason || "unknown"})`, "warn");
+    return;
+  }
+  debugLog(`attention action ok: ${action}`, "ok");
 }
 
 // ── Clickable overlay ──────────────────────────────────────────────────────
@@ -403,10 +668,45 @@ function initLocalEventBridge() {
   window.addEventListener("afk:close-clickable-list", () => {
     removeClickableOverlay();
   });
+
+  // Bridge attention events from localhost companion page -> extension runtime.
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    const data = event.data || {};
+    if (data?.type !== "AFK_EXTERNAL_ATTENTION") return;
+    if (!String(data?.event || "").startsWith("attention:")) return;
+    const isLocalCompanionHost =
+      location.hostname === "localhost" || location.hostname === "127.0.0.1";
+    if (!isLocalCompanionHost) return;
+    sendRuntimeMessage({
+      type: "AFK_EXTERNAL_ATTENTION",
+      payload: {
+        event: data.event,
+        detail: data.detail || {},
+      },
+    }).catch(() => {});
+  });
 }
 
 function initBackgroundStateListener() {
   chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type === "gesture") {
+      const eventName = message?.event;
+      if (
+        eventName === "attention:look-away" ||
+        eventName === "attention:look-at"
+      ) {
+        handleEyeAttentionEvent(eventName, message?.detail || {});
+      } else if (eventName === "attention:status") {
+        handleEyeAttentionStatus(message?.detail || {});
+      } else if (eventName === "attention:gaze") {
+        updateEyeGazeDot(message?.detail || {});
+      } else if (eventName === "attention:action") {
+        handleAttentionAction(message?.detail || {});
+      }
+      return;
+    }
+
     if (message?.type !== CHANNEL.STATE_UPDATED) return;
     mergeState(message.payload);
     updateRuntimeModules();
@@ -419,16 +719,41 @@ function initTabActivityListeners() {
       `tab visibility: ${document.visibilityState}, focus=${document.hasFocus() ? "yes" : "no"}`,
     );
     updateRuntimeModules();
+
+    if (document.visibilityState === "hidden") {
+      if (attentionPauseTimer) clearTimeout(attentionPauseTimer);
+      attentionPauseTimer = setTimeout(() => {
+        attentionPauseTimer = null;
+        if (eyeAttentionState !== "unknown") {
+          maybePauseOnAttentionLost("tab-hidden");
+        }
+      }, 900);
+    } else {
+      if (attentionPauseTimer) {
+        clearTimeout(attentionPauseTimer);
+        attentionPauseTimer = null;
+      }
+      maybeResumeOnAttentionBack("tab-visible");
+    }
   });
 
   window.addEventListener("focus", () => {
     debugLog("tab focus: yes");
     updateRuntimeModules();
+    if (attentionPauseTimer) {
+      clearTimeout(attentionPauseTimer);
+      attentionPauseTimer = null;
+    }
+    if (eyeAttentionState !== "unknown") {
+      maybeResumeOnAttentionBack("tab-focus");
+    }
   });
 
   window.addEventListener("blur", () => {
     debugLog("tab focus: no");
     updateRuntimeModules();
+    // Blur can happen from transient UI focus changes (e.g. extension popup),
+    // so avoid auto-pausing here to reduce false positives.
   });
 }
 
@@ -439,459 +764,46 @@ async function syncInitialState() {
   }
 }
 
+async function syncInitialAttentionStatus() {
+  const response = await sendRuntimeMessage({
+    type: CHANNEL.GET_ATTENTION_STATUS,
+  });
+  if (!response?.ok || !response?.event) return;
+  if (response.event === "attention:status") {
+    handleEyeAttentionStatus(response.detail || {});
+    return;
+  }
+  if (
+    response.event === "attention:look-away" ||
+    response.event === "attention:look-at"
+  ) {
+    handleEyeAttentionEvent(response.event, response.detail || {});
+  }
+}
+
 async function bootstrap() {
   initDebugPanel();
+  renderEyeAttentionBadge("unknown");
+  if (eyeAttentionInitTimer) clearTimeout(eyeAttentionInitTimer);
+  eyeAttentionInitTimer = setTimeout(() => {
+    if (!eyeAttentionSignalSeen && eyeAttentionState === "unknown") {
+      renderEyeAttentionBadge("unsupported", {
+        reason: "no attention events from offscreen",
+      });
+      debugLog("eye attention: no events received from offscreen", "warn");
+    }
+  }, 5000);
   debugLog("content script boot");
   await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
   initLocalEventBridge();
   initBackgroundStateListener();
   initTabActivityListeners();
   await syncInitialState();
+  await syncInitialAttentionStatus();
   debugLog(
     `state: enabled=${currentState.enabled} voice=${currentState.voiceEnabled} wake=${currentState.requireWakeWord}`,
   );
   updateRuntimeModules();
 }
 
-bootstrap();
-// Receives gesture messages from the service worker (relayed from offscreen.js)
-// and translates them into DOM interactions.
-
-(function () {
-  "use strict";
-
-  // ---------------------------------------------------------------------------
-  // Finger cursor overlay
-  // ---------------------------------------------------------------------------
-  const cursor = document.createElement("div");
-  Object.assign(cursor.style, {
-    position: "fixed",
-    width: "22px",
-    height: "22px",
-    borderRadius: "50%",
-    background: "rgba(99, 102, 241, 0.85)",
-    border: "2.5px solid white",
-    boxShadow: "0 0 10px rgba(99,102,241,0.55)",
-    pointerEvents: "none",
-    zIndex: "2147483646",
-    transform: "translate(-50%, -50%)",
-    transition: "background 0.15s, box-shadow 0.15s",
-    display: "none",
-  });
-  document.body.appendChild(cursor);
-
-  const label = document.createElement("div");
-  Object.assign(label.style, {
-    position: "fixed",
-    padding: "3px 8px",
-    borderRadius: "999px",
-    background: "rgba(0,0,0,0.65)",
-    color: "#fff",
-    fontSize: "11px",
-    fontFamily: "system-ui, sans-serif",
-    pointerEvents: "none",
-    zIndex: "2147483646",
-    display: "none",
-    transform: "translate(-50%, -150%)",
-    whiteSpace: "nowrap",
-  });
-  document.body.appendChild(label);
-
-  const CURSOR_SMOOTHING = 0.22;
-  const USE_DWELL_CLICK = true;
-  const DWELL_CLICK_MS = 700;
-  const DWELL_RADIUS_PX = 16;
-  const DWELL_COOLDOWN_MS = 900;
-  const DWELL_SCROLL_SUPPRESS_MS = 500;
-  const EDGE_TAB_SWITCH_ENABLED = false;
-  const EDGE_ZONE_RATIO = 0.08;
-  const EDGE_SWIPE_WINDOW_MS = 700;
-  const EDGE_SWIPE_MIN_SPEED_PX_PER_S = 650;
-  const EDGE_SWIPE_MIN_TRAVEL_RATIO = 0.18;
-  const EDGE_SWIPE_START_CENTER_RATIO = 0.7;
-  const EDGE_TAB_COOLDOWN_MS = 900;
-  const CURSOR_LOST_GRACE_MS = 280;
-  let cursorTargetX = 0;
-  let cursorTargetY = 0;
-  let cursorRenderX = 0;
-  let cursorRenderY = 0;
-  let cursorAnimFrame = null;
-  let currentCursorState = "idle";
-  let dwellAnchorX = 0;
-  let dwellAnchorY = 0;
-  let dwellStartMs = 0;
-  let dwellLastClickMs = 0;
-  let dwellLocked = false;
-  let dwellSuppressUntilMs = 0;
-  let edgeLastSwitchMs = 0;
-  let edgeSwipeStartX = 0;
-  let edgeSwipeStartMs = 0;
-  let cursorLostTimer = null;
-
-  function paintCursor(x, y) {
-    cursor.style.left = x + "px";
-    cursor.style.top = y + "px";
-    label.style.left = x + "px";
-    label.style.top = y + "px";
-  }
-
-  function startCursorAnimation() {
-    if (cursorAnimFrame != null) return;
-    const tick = () => {
-      cursorRenderX += (cursorTargetX - cursorRenderX) * CURSOR_SMOOTHING;
-      cursorRenderY += (cursorTargetY - cursorRenderY) * CURSOR_SMOOTHING;
-      paintCursor(cursorRenderX, cursorRenderY);
-      cursorAnimFrame = requestAnimationFrame(tick);
-    };
-    cursorAnimFrame = requestAnimationFrame(tick);
-  }
-
-  function stopCursorAnimation() {
-    if (cursorAnimFrame == null) return;
-    cancelAnimationFrame(cursorAnimFrame);
-    cursorAnimFrame = null;
-  }
-
-  function setCursorPos(x, y) {
-    cursorTargetX = x;
-    cursorTargetY = y;
-    if (cursorAnimFrame == null) {
-      cursorRenderX = x;
-      cursorRenderY = y;
-      paintCursor(x, y);
-      startCursorAnimation();
-    }
-  }
-
-  function setCursorState(state) {
-    const states = {
-      idle: {
-        bg: "rgba(99,102,241,0.85)",
-        shadow: "0 0 10px rgba(99,102,241,0.55)",
-        text: null,
-      },
-      drag: {
-        bg: "rgba(239,68,68,0.85)",
-        shadow: "0 0 12px rgba(239,68,68,0.6)",
-        text: "drag",
-      },
-      scroll: {
-        bg: "rgba(34,197,94,0.85)",
-        shadow: "0 0 12px rgba(34,197,94,0.6)",
-        text: "scroll",
-      },
-      tabswitch: {
-        bg: "rgba(245,158,11,0.9)",
-        shadow: "0 0 12px rgba(245,158,11,0.6)",
-        text: "tab switch",
-      },
-    };
-    const s = states[state] || states.idle;
-    currentCursorState = state;
-    cursor.style.background = s.bg;
-    cursor.style.boxShadow = s.shadow;
-    if (s.text) {
-      label.textContent = s.text;
-      label.style.display = "block";
-    } else {
-      label.style.display = "none";
-    }
-  }
-
-  // Convert normalised (0-1) coords from offscreen.js to screen pixels
-  function toScreen(normX, normY) {
-    return { x: normX * window.innerWidth, y: normY * window.innerHeight };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  let dragTarget = null;
-  let scrollResetTimer;
-
-  function elementAt(x, y) {
-    cursor.style.display = "none";
-    label.style.display = "none";
-    const el = document.elementFromPoint(x, y);
-    cursor.style.display = "block";
-    return el;
-  }
-
-  function findScrollable(x, y, dy) {
-    let el = document.elementFromPoint(x, y);
-    while (el && el !== document.body) {
-      const style = getComputedStyle(el);
-      const overflow = style.overflow + style.overflowY;
-      const canScroll = /auto|scroll/.test(overflow);
-      const hasRoom =
-        dy > 0
-          ? el.scrollTop + el.clientHeight < el.scrollHeight
-          : el.scrollTop > 0;
-      if (canScroll && hasRoom) return el;
-      el = el.parentElement;
-    }
-    return window;
-  }
-
-  function dispatchClickAt(x, y) {
-    cursor.style.transform = "translate(-50%, -50%) scale(0.55)";
-    setTimeout(() => {
-      cursor.style.transform = "translate(-50%, -50%) scale(1)";
-    }, 140);
-    const el = elementAt(x, y);
-    if (!el) return;
-    el.dispatchEvent(
-      new MouseEvent("mousedown", {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: y,
-        view: window,
-      }),
-    );
-    el.dispatchEvent(
-      new MouseEvent("mouseup", {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: y,
-        view: window,
-      }),
-    );
-    el.dispatchEvent(
-      new MouseEvent("click", {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: y,
-        view: window,
-      }),
-    );
-    if (el.matches("input, textarea, select, [contenteditable]")) el.focus();
-  }
-
-  function updateDwellClick(x, y) {
-    if (!USE_DWELL_CLICK) return;
-
-    const now = Date.now();
-    if (now < dwellSuppressUntilMs || currentCursorState === "scroll") {
-      dwellAnchorX = x;
-      dwellAnchorY = y;
-      dwellStartMs = now;
-      return;
-    }
-
-    if (!dwellStartMs) {
-      dwellAnchorX = x;
-      dwellAnchorY = y;
-      dwellStartMs = now;
-      return;
-    }
-
-    const moved = Math.hypot(x - dwellAnchorX, y - dwellAnchorY);
-
-    if (dwellLocked) {
-      // Rearm dwell click only after meaningful movement away from clicked point.
-      if (moved > DWELL_RADIUS_PX * 1.6) {
-        dwellLocked = false;
-        dwellAnchorX = x;
-        dwellAnchorY = y;
-        dwellStartMs = now;
-      }
-      return;
-    }
-
-    if (moved > DWELL_RADIUS_PX) {
-      dwellAnchorX = x;
-      dwellAnchorY = y;
-      dwellStartMs = now;
-      return;
-    }
-
-    if (
-      now - dwellStartMs >= DWELL_CLICK_MS &&
-      now - dwellLastClickMs >= DWELL_COOLDOWN_MS
-    ) {
-      dispatchClickAt(x, y);
-      dwellLastClickMs = now;
-      dwellLocked = true;
-    }
-  }
-
-  function updateEdgeTabSwitch(x) {
-    if (!EDGE_TAB_SWITCH_ENABLED) return false;
-
-    const now = Date.now();
-    if (now - edgeLastSwitchMs < EDGE_TAB_COOLDOWN_MS) return false;
-    if (currentCursorState === "scroll") return false;
-
-    const leftZone = window.innerWidth * EDGE_ZONE_RATIO;
-    const rightZone = window.innerWidth * (1 - EDGE_ZONE_RATIO);
-    const centerHalf = (window.innerWidth * EDGE_SWIPE_START_CENTER_RATIO) / 2;
-    const centerMin = window.innerWidth / 2 - centerHalf;
-    const centerMax = window.innerWidth / 2 + centerHalf;
-
-    if (!edgeSwipeStartMs) {
-      edgeSwipeStartX = x;
-      edgeSwipeStartMs = now;
-      return false;
-    }
-
-    let dt = now - edgeSwipeStartMs;
-    if (dt > EDGE_SWIPE_WINDOW_MS) {
-      edgeSwipeStartX = x;
-      edgeSwipeStartMs = now;
-      dt = 0;
-    }
-    if (dt <= 0) return false;
-
-    const dx = x - edgeSwipeStartX;
-    const speed = Math.abs(dx) / (dt / 1000);
-    const minTravel = window.innerWidth * EDGE_SWIPE_MIN_TRAVEL_RATIO;
-    const startFromCenter =
-      edgeSwipeStartX >= centerMin && edgeSwipeStartX <= centerMax;
-
-    let direction = null;
-    if (dx > 0 && x >= rightZone) direction = "next";
-    if (dx < 0 && x <= leftZone) direction = "prev";
-
-    if (
-      direction &&
-      startFromCenter &&
-      Math.abs(dx) >= minTravel &&
-      speed >= EDGE_SWIPE_MIN_SPEED_PX_PER_S
-    ) {
-      chrome.runtime
-        .sendMessage({ type: "tabswitch", direction })
-        .catch(() => {});
-      edgeLastSwitchMs = now;
-      edgeSwipeStartX = x;
-      edgeSwipeStartMs = now;
-      dwellSuppressUntilMs = now + DWELL_SCROLL_SUPPRESS_MS;
-      return true;
-    }
-
-    return false;
-  }
-
-  // ---------------------------------------------------------------------------
-  // Gesture → DOM action bindings
-  // Gesture messages arrive via chrome.runtime.onMessage from the service worker.
-  // Positions are normalised [0, 1]; toScreen() converts to page pixels.
-  // ---------------------------------------------------------------------------
-
-  chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.type !== "gesture") return;
-    const { event, detail } = msg;
-
-    if (event === "gesture:cursor") {
-      if (cursorLostTimer) {
-        clearTimeout(cursorLostTimer);
-        cursorLostTimer = null;
-      }
-      const { x, y } = toScreen(detail.normX, detail.normY);
-      setCursorPos(x, y);
-      const edgeActive = updateEdgeTabSwitch(x);
-      if (!edgeActive) updateDwellClick(x, y);
-      if (cursor.style.display === "none") {
-        cursor.style.display = "block";
-        setCursorState("idle");
-      }
-    } else if (event === "gesture:none") {
-      if (cursorLostTimer) clearTimeout(cursorLostTimer);
-      cursorLostTimer = setTimeout(() => {
-        cursor.style.display = "none";
-        label.style.display = "none";
-        stopCursorAnimation();
-        dwellStartMs = 0;
-        dwellLocked = false;
-        edgeSwipeStartMs = 0;
-        cursorLostTimer = null;
-      }, CURSOR_LOST_GRACE_MS);
-    } else if (event === "gesture:click") {
-      if (!USE_DWELL_CLICK) {
-        const { x, y } = toScreen(detail.normX, detail.normY);
-        dispatchClickAt(x, y);
-      }
-    } else if (event === "gesture:dragstart") {
-      const { x, y } = toScreen(detail.normX, detail.normY);
-      dragTarget = elementAt(x, y);
-      if (dragTarget) {
-        dragTarget.dispatchEvent(
-          new MouseEvent("mousedown", {
-            bubbles: true,
-            cancelable: true,
-            clientX: x,
-            clientY: y,
-            view: window,
-          }),
-        );
-      }
-      setCursorState("drag");
-    } else if (event === "gesture:drag") {
-      const { x, y } = toScreen(detail.normX, detail.normY);
-      setCursorPos(x, y);
-      document.dispatchEvent(
-        new MouseEvent("mousemove", {
-          bubbles: true,
-          cancelable: true,
-          clientX: x,
-          clientY: y,
-          view: window,
-        }),
-      );
-    } else if (event === "gesture:dragend") {
-      const { x, y } = toScreen(detail.normX, detail.normY);
-      const target = elementAt(x, y);
-      [dragTarget, target].forEach((el) => {
-        if (el)
-          el.dispatchEvent(
-            new MouseEvent("mouseup", {
-              bubbles: true,
-              cancelable: true,
-              clientX: x,
-              clientY: y,
-              view: window,
-            }),
-          );
-      });
-      dragTarget = null;
-      setCursorState("idle");
-    } else if (event === "gesture:scroll") {
-      const { dx, dy } = detail;
-      setCursorState("scroll");
-      dwellSuppressUntilMs = Date.now() + DWELL_SCROLL_SUPPRESS_MS;
-      clearTimeout(scrollResetTimer);
-      scrollResetTimer = setTimeout(() => setCursorState("idle"), 400);
-      const pos = {
-        x: parseFloat(cursor.style.left),
-        y: parseFloat(cursor.style.top),
-      };
-      const scrollable = findScrollable(pos.x, pos.y, dy);
-      if (scrollable && scrollable !== document.documentElement) {
-        scrollable.scrollBy({ left: dx, top: dy, behavior: "auto" });
-      } else {
-        window.scrollBy({ left: dx, top: dy, behavior: "auto" });
-      }
-    } else if (event === "gesture:zoom") {
-      chrome.runtime.sendMessage({ type: "zoom", direction: detail.direction });
-    } else if (event === "gesture:navigate") {
-      if (detail.direction === "back") history.back();
-      else history.forward();
-    } else if (event === "gesture:tabswitch:start") {
-      setCursorState("tabswitch");
-    } else if (event === "gesture:tabswitch:drag") {
-      // Shift label slightly so the user can see drag progress
-      const base = parseFloat(cursor.style.left) || 0;
-      label.style.left = base + detail.normDx * window.innerWidth * 0.3 + "px";
-    } else if (event === "gesture:tabswitch:end") {
-      setCursorState("idle");
-      chrome.runtime.sendMessage({
-        type: "tabswitch",
-        direction: detail.normDx > 0 ? "next" : "prev",
-      });
-    }
-  });
-})();
 bootstrap();

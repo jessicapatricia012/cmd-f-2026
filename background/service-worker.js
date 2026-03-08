@@ -9,6 +9,9 @@ const DEFAULT_STATE = {
   requireWakeWord: true,
   customKeywords: {},
 };
+let latestAttentionEvent = null;
+const attentionAutoPausedByTab = new Map();
+let lastAttentionActionAt = 0;
 
 async function getState() {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
@@ -41,6 +44,85 @@ async function broadcastState(state) {
       }
     }),
   );
+}
+
+async function broadcastAttentionEvent(message) {
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs.map(async (tab) => {
+      if (!tab.id) return;
+      try {
+        await chrome.tabs.sendMessage(tab.id, message);
+      } catch {
+        // Ignore tabs without content script access.
+      }
+    }),
+  );
+}
+
+async function handleAttentionPlayback(eventName) {
+  const now = Date.now();
+  if (now - lastAttentionActionAt < 300) return;
+
+  const state = await getState();
+  if (!state.enabled || !state.gesturesEnabled) {
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, ok: false, skipped: true, reason: "disabled" },
+    }).catch(() => {});
+    return;
+  }
+
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = activeTab?.id;
+  if (!tabId) {
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, ok: false, skipped: true, reason: "no-active-tab" },
+    }).catch(() => {});
+    return;
+  }
+
+  if (eventName === "attention:look-away") {
+    if (attentionAutoPausedByTab.get(tabId)) {
+      broadcastAttentionEvent({
+        type: "gesture",
+        event: "attention:action",
+        detail: { eventName, action: "video-pause", ok: true, skipped: true, reason: "already-paused" },
+      }).catch(() => {});
+      return;
+    }
+    await ACTION_HANDLERS["video-pause"](tabId);
+    attentionAutoPausedByTab.set(tabId, true);
+    lastAttentionActionAt = now;
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, action: "video-pause", ok: true, tabId },
+    }).catch(() => {});
+    return;
+  }
+
+  if (eventName === "attention:look-at") {
+    if (!attentionAutoPausedByTab.get(tabId)) {
+      broadcastAttentionEvent({
+        type: "gesture",
+        event: "attention:action",
+        detail: { eventName, action: "video-play", ok: true, skipped: true, reason: "not-auto-paused" },
+      }).catch(() => {});
+      return;
+    }
+    await ACTION_HANDLERS["video-play"](tabId);
+    attentionAutoPausedByTab.set(tabId, false);
+    lastAttentionActionAt = now;
+    broadcastAttentionEvent({
+      type: "gesture",
+      event: "attention:action",
+      detail: { eventName, action: "video-play", ok: true, tabId },
+    }).catch(() => {});
+  }
 }
 
 async function withActiveTab(callback, preferredTabId) {
@@ -873,6 +955,40 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
+    if (message.type === "AFK_EXTERNAL_ATTENTION") {
+      const eventName = String(message.payload?.event || "");
+      if (!eventName.startsWith("attention:")) {
+        sendResponse({ ok: false, error: "Invalid external attention event" });
+        return;
+      }
+      latestAttentionEvent = {
+        event: eventName,
+        detail: message.payload?.detail || {},
+        at: Date.now(),
+      };
+      const relay = {
+        type: "gesture",
+        event: eventName,
+        detail: message.payload?.detail || {},
+      };
+      await broadcastAttentionEvent(relay);
+      if (eventName === "attention:look-away" || eventName === "attention:look-at") {
+        await handleAttentionPlayback(eventName);
+      }
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (message.type === "AFK_GET_ATTENTION_STATUS") {
+      sendResponse({
+        ok: true,
+        event: latestAttentionEvent?.event || null,
+        detail: latestAttentionEvent?.detail || null,
+        at: latestAttentionEvent?.at || null,
+      });
+      return;
+    }
+
     if (message.type === "AFK_COMMAND") {
       const state = await getState();
       const action = message.payload?.action;
@@ -1000,6 +1116,30 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Relay gesture events from offscreen doc → active tab's content script
   if (msg.type === "gesture") {
+    if (typeof msg.event === "string" && msg.event.startsWith("attention:")) {
+      latestAttentionEvent = {
+        event: msg.event,
+        detail: msg.detail || {},
+        at: Date.now(),
+      };
+      broadcastAttentionEvent(msg).catch(() => {});
+      if (msg.event === "attention:look-away" || msg.event === "attention:look-at") {
+        handleAttentionPlayback(msg.event).catch((err) => {
+          console.warn("[AFK] attention playback handling failed:", err);
+          broadcastAttentionEvent({
+            type: "gesture",
+            event: "attention:action",
+            detail: {
+              eventName: msg.event,
+              ok: false,
+              error: err?.message || String(err),
+            },
+          }).catch(() => {});
+        });
+      }
+      return;
+    }
+
     if (msg.event === "gesture:closetab") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
