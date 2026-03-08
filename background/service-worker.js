@@ -1,5 +1,5 @@
 // Background service worker
-// Handles: tab management, extension state, message routing
+// Handles: offscreen document lifecycle, gesture message relay, zoom, tab switching
 
 const STORAGE_KEY = "afkState";
 const DEFAULT_STATE = {
@@ -38,7 +38,7 @@ async function broadcastState(state) {
       } catch {
         // Ignore tabs without content script access.
       }
-    })
+    }),
   );
 }
 
@@ -117,7 +117,7 @@ const ACTION_HANDLERS = {
           doc?.scrollHeight || 0,
           body?.scrollHeight || 0,
           doc?.offsetHeight || 0,
-          body?.offsetHeight || 0
+          body?.offsetHeight || 0,
         );
         window.scrollTo({ top: maxTop, left: 0, behavior: "smooth" });
       });
@@ -168,11 +168,16 @@ const ACTION_HANDLERS = {
         }
 
         const videos = Array.from(document.querySelectorAll("video"));
-        const target = videos.find((video) => !video.paused || video.currentTime > 0) || videos[0];
+        const target =
+          videos.find((video) => !video.paused || video.currentTime > 0) ||
+          videos[0];
         if (!target) return;
 
         if (Number.isFinite(target.duration) && target.duration > 0) {
-          const nextTime = Math.min(target.currentTime + 10, Math.max(target.duration - 0.05, 0));
+          const nextTime = Math.min(
+            target.currentTime + 10,
+            Math.max(target.duration - 0.05, 0),
+          );
           target.currentTime = nextTime;
           return;
         }
@@ -186,7 +191,11 @@ const ACTION_HANDLERS = {
       await executeInTab(tab.id, () => {
         const pressMKey = () => {
           const player = document.getElementById("movie_player");
-          const target = player || document.activeElement || document.body || document.documentElement;
+          const target =
+            player ||
+            document.activeElement ||
+            document.body ||
+            document.documentElement;
           const eventInit = {
             key: "m",
             code: "KeyM",
@@ -201,11 +210,15 @@ const ACTION_HANDLERS = {
 
         const ytPlayer = document.getElementById("movie_player");
         if (ytPlayer && typeof ytPlayer.mute === "function") {
-          const wasMuted = typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
+          const wasMuted =
+            typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
           if (wasMuted !== true) {
             // Prefer M-key toggle on YouTube so the player shows mute UI.
             pressMKey();
-            const nowMuted = typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
+            const nowMuted =
+              typeof ytPlayer.isMuted === "function"
+                ? ytPlayer.isMuted()
+                : null;
             if (nowMuted === true) return;
           }
           // Fallback when key dispatch does not toggle state.
@@ -227,7 +240,11 @@ const ACTION_HANDLERS = {
       await executeInTab(tab.id, () => {
         const pressMKey = () => {
           const player = document.getElementById("movie_player");
-          const target = player || document.activeElement || document.body || document.documentElement;
+          const target =
+            player ||
+            document.activeElement ||
+            document.body ||
+            document.documentElement;
           const eventInit = {
             key: "m",
             code: "KeyM",
@@ -242,11 +259,15 @@ const ACTION_HANDLERS = {
 
         const ytPlayer = document.getElementById("movie_player");
         if (ytPlayer && typeof ytPlayer.unMute === "function") {
-          const wasMuted = typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
+          const wasMuted =
+            typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
           if (wasMuted !== false) {
             // Prefer M-key toggle on YouTube so the player shows unmute UI.
             pressMKey();
-            const nowMuted = typeof ytPlayer.isMuted === "function" ? ytPlayer.isMuted() : null;
+            const nowMuted =
+              typeof ytPlayer.isMuted === "function"
+                ? ytPlayer.isMuted()
+                : null;
             if (nowMuted === false) return;
           }
           // Fallback when key dispatch does not toggle state.
@@ -264,8 +285,12 @@ const ACTION_HANDLERS = {
     }, targetTabId);
   },
   "page-refresh": async (targetTabId) => {
-    const active = targetTabId ? await chrome.tabs.get(targetTabId).catch(() => null) : null;
-    const [fallback] = active ? [] : await chrome.tabs.query({ active: true, currentWindow: true });
+    const active = targetTabId
+      ? await chrome.tabs.get(targetTabId).catch(() => null)
+      : null;
+    const [fallback] = active
+      ? []
+      : await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = active || fallback;
     if (!tab?.id) return;
     await chrome.tabs.reload(tab.id);
@@ -293,7 +318,10 @@ const ACTION_HANDLERS = {
           }
           return { ok: false, error: "Fullscreen was blocked" };
         } catch (error) {
-          return { ok: false, error: error?.message || "Fullscreen was blocked" };
+          return {
+            ok: false,
+            error: error?.message || "Fullscreen was blocked",
+          };
         }
       });
     }, targetTabId);
@@ -317,15 +345,22 @@ const ACTION_HANDLERS = {
           }
           return { ok: false, error: "Failed to exit fullscreen" };
         } catch (error) {
-          return { ok: false, error: error?.message || "Failed to exit fullscreen" };
+          return {
+            ok: false,
+            error: error?.message || "Failed to exit fullscreen",
+          };
         }
       });
     }, targetTabId);
     return status;
   },
   "zoom-in": async (targetTabId) => {
-    const active = targetTabId ? await chrome.tabs.get(targetTabId).catch(() => null) : null;
-    const [fallback] = active ? [] : await chrome.tabs.query({ active: true, currentWindow: true });
+    const active = targetTabId
+      ? await chrome.tabs.get(targetTabId).catch(() => null)
+      : null;
+    const [fallback] = active
+      ? []
+      : await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = active || fallback;
     if (!tab?.id) return;
     const currentZoom = await chrome.tabs.getZoom(tab.id);
@@ -333,8 +368,12 @@ const ACTION_HANDLERS = {
     await chrome.tabs.setZoom(tab.id, Number(nextZoom.toFixed(2)));
   },
   "zoom-out": async (targetTabId) => {
-    const active = targetTabId ? await chrome.tabs.get(targetTabId).catch(() => null) : null;
-    const [fallback] = active ? [] : await chrome.tabs.query({ active: true, currentWindow: true });
+    const active = targetTabId
+      ? await chrome.tabs.get(targetTabId).catch(() => null)
+      : null;
+    const [fallback] = active
+      ? []
+      : await chrome.tabs.query({ active: true, currentWindow: true });
     const tab = active || fallback;
     if (!tab?.id) return;
     const currentZoom = await chrome.tabs.getZoom(tab.id);
@@ -342,7 +381,10 @@ const ACTION_HANDLERS = {
     await chrome.tabs.setZoom(tab.id, Number(nextZoom.toFixed(2)));
   },
   "next-tab": async () => {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [active] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     if (!active?.id) return;
     if (!active) return;
     const tabs = await chrome.tabs.query({ currentWindow: true });
@@ -354,7 +396,10 @@ const ACTION_HANDLERS = {
     }
   },
   "prev-tab": async () => {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [active] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     if (!active) return;
     const tabs = await chrome.tabs.query({ currentWindow: true });
     const currentIndex = tabs.findIndex((tab) => tab.id === active.id);
@@ -378,8 +423,11 @@ const ACTION_HANDLERS = {
   "new-tab": async () => {
     await chrome.tabs.create({});
   },
-  "reload": async () => {
-    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+  reload: async () => {
+    const [active] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
     if (active?.id) await chrome.tabs.reload(active.id);
   },
 };
@@ -435,7 +483,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return;
     }
 
-    sendResponse({ ok: false, error: `Unsupported message type: ${message.type}` });
+    sendResponse({
+      ok: false,
+      error: `Unsupported message type: ${message.type}`,
+    });
   })().catch((error) => {
     sendResponse({
       ok: false,
@@ -446,3 +497,132 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return true;
 });
 
+// ---------------------------------------------------------------------------
+// Offscreen document helpers
+// ---------------------------------------------------------------------------
+
+async function offscreenExists() {
+  // Chrome 116+ supports runtime.getContexts; older versions need SW clients fallback.
+  if (chrome.runtime.getContexts) {
+    const contexts = await chrome.runtime.getContexts({
+      contextTypes: ["OFFSCREEN_DOCUMENT"],
+    });
+    return contexts.length > 0;
+  }
+
+  const offscreenUrl = chrome.runtime.getURL("offscreen/offscreen.html");
+  const matched = await clients.matchAll();
+  return matched.some((client) => client.url === offscreenUrl);
+}
+
+async function startOffscreen() {
+  if (await offscreenExists()) return;
+  await chrome.offscreen.createDocument({
+    url: chrome.runtime.getURL("offscreen/offscreen.html"),
+    reasons: ["USER_MEDIA"],
+    justification: "Webcam access for real-time hand gesture recognition",
+  });
+}
+
+async function stopOffscreen() {
+  if (!(await offscreenExists())) return;
+  await chrome.offscreen.closeDocument();
+}
+
+// ---------------------------------------------------------------------------
+// Auto-start if camera permission was previously granted
+// ---------------------------------------------------------------------------
+
+async function autoStartIfPermitted() {
+  try {
+    const perm = await navigator.permissions.query({ name: "camera" });
+    if (perm.state === "granted") await startOffscreen();
+  } catch {
+    // permissions API unavailable — skip auto-start; user opens popup to enable
+  }
+}
+
+chrome.runtime.onInstalled.addListener(() =>
+  autoStartIfPermitted().catch(console.error),
+);
+chrome.runtime.onStartup.addListener(() =>
+  autoStartIfPermitted().catch(console.error),
+);
+
+// Revive offscreen doc if service worker woke up and doc was closed
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === "complete")
+    autoStartIfPermitted().catch(console.error);
+});
+
+// ---------------------------------------------------------------------------
+// Message routing
+// ---------------------------------------------------------------------------
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  // Popup toggled ON — camera permission was just granted by the popup
+  if (msg.type === "start") {
+    startOffscreen()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.error("[AFK] failed to start offscreen:", err);
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      });
+    return true;
+  }
+
+  // Popup toggled OFF
+  if (msg.type === "stop") {
+    stopOffscreen()
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.error("[AFK] failed to stop offscreen:", err);
+        sendResponse({ ok: false, error: err?.message || String(err) });
+      });
+    return true;
+  }
+
+  // Relay gesture events from offscreen doc → active tab's content script
+  if (msg.type === "gesture") {
+    if (msg.event === "gesture:closetab") {
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        const id = tabs[0]?.id;
+        if (id != null) chrome.tabs.remove(id).catch(() => {});
+      });
+      return;
+    }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]?.id) {
+        chrome.tabs.sendMessage(tabs[0].id, msg).catch(() => {});
+      }
+    });
+    return;
+  }
+
+  // Zoom in / out on the sender tab (request from content script)
+  if (msg.type === "zoom") {
+    const tabId = sender.tab?.id;
+    if (!tabId) return;
+    chrome.tabs.getZoom(tabId, (current) => {
+      const delta = msg.direction === "in" ? 0.1 : -0.1;
+      const next = Math.min(
+        5,
+        Math.max(0.25, Math.round((current + delta) * 10) / 10),
+      );
+      chrome.tabs.setZoom(tabId, next);
+    });
+  }
+
+  // Switch to the adjacent tab (request from content script)
+  if (msg.type === "tabswitch") {
+    chrome.tabs.query({ currentWindow: true }, (tabs) => {
+      const sorted = tabs.slice().sort((a, b) => a.index - b.index);
+      const activeIdx = sorted.findIndex((t) => t.active);
+      if (activeIdx === -1) return;
+      const step = msg.direction === "next" ? 1 : -1;
+      const nextIdx = (activeIdx + step + sorted.length) % sorted.length;
+      chrome.tabs.update(sorted[nextIdx].id, { active: true });
+    });
+  }
+});

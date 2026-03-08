@@ -4,28 +4,30 @@
    Popup UI styles
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap");
 
 /* ── Reset & root ──────────────────────────────────────────────────────────── */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
 }
 
 :root {
-  --c-bg:           #090d15;
-  --c-surface:      #111820;
-  --c-border:       rgba(0, 255, 224, 0.12);
-  --c-accent:       #00ffe0;
-  --c-accent-dim:   rgba(0, 255, 224, 0.15);
+  --c-bg: #090d15;
+  --c-surface: #111820;
+  --c-border: rgba(0, 255, 224, 0.12);
+  --c-accent: #00ffe0;
+  --c-accent-dim: rgba(0, 255, 224, 0.15);
   --c-accent-voice: #bf80ff;
-  --c-text:         #d0e0ec;
-  --c-text-dim:     rgba(208, 224, 236, 0.45);
-  --c-red:          #ff4466;
-  --c-green:        #00ffe0;
-  --font-mono:      'Share Tech Mono', monospace;
-  --font-ui:        'Rajdhani', sans-serif;
+  --c-text: #d0e0ec;
+  --c-text-dim: rgba(208, 224, 236, 0.45);
+  --c-red: #ff4466;
+  --c-green: #00ffe0;
+  --font-mono: "Share Tech Mono", monospace;
+  --font-ui: "Rajdhani", sans-serif;
 }
 
 body {
@@ -54,14 +56,20 @@ body {
   justify-content: space-between;
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--c-border);
-  background: linear-gradient(180deg, rgba(0,255,224,0.04) 0%, transparent 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(0, 255, 224, 0.04) 0%,
+    transparent 100%
+  );
   position: relative;
 }
 
 .popup-header::after {
-  content: '';
+  content: "";
   position: absolute;
-  bottom: 0; left: 0; right: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, var(--c-accent), transparent);
   opacity: 0.3;
@@ -155,10 +163,12 @@ body {
   width: 52px;
   height: 28px;
   background: var(--c-surface);
-  border: 1.5px solid rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
   position: relative;
-  transition: background 0.3s, border-color 0.3s;
+  transition:
+    background 0.3s,
+    border-color 0.3s;
 }
 
 .toggle-btn[aria-checked="true"] .toggle-btn__track {
@@ -174,7 +184,9 @@ body {
   height: 20px;
   border-radius: 50%;
   background: var(--c-text-dim);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.3s;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.3s;
   z-index: 1;
 }
 
@@ -188,7 +200,11 @@ body {
   position: absolute;
   inset: -4px;
   border-radius: 16px;
-  background: radial-gradient(ellipse, rgba(0,255,224,0.25) 0%, transparent 70%);
+  background: radial-gradient(
+    ellipse,
+    rgba(0, 255, 224, 0.25) 0%,
+    transparent 70%
+  );
   opacity: 0;
   transition: opacity 0.3s;
   pointer-events: none;
@@ -216,7 +232,9 @@ body {
   border-radius: 50%;
   background: var(--c-text-dim);
   flex-shrink: 0;
-  transition: background 0.3s, box-shadow 0.3s;
+  transition:
+    background 0.3s,
+    box-shadow 0.3s;
 }
 
 .cam-status__dot.is-live {
@@ -268,7 +286,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
 .feature-row:last-child {
@@ -317,10 +335,12 @@ body {
   width: 36px;
   height: 20px;
   background: var(--c-surface);
-  border: 1.5px solid rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
   border-radius: 10px;
   position: relative;
-  transition: background 0.3s, border-color 0.3s;
+  transition:
+    background 0.3s,
+    border-color 0.3s;
 }
 
 .mini-toggle[aria-checked="true"] .mini-toggle__track {
@@ -336,7 +356,9 @@ body {
   height: 14px;
   border-radius: 50%;
   background: var(--c-text-dim);
-  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.3s;
+  transition:
+    transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.3s;
 }
 
 .mini-toggle[aria-checked="true"] .mini-toggle__thumb {
@@ -404,7 +426,7 @@ kbd {
   display: inline-block;
   padding: 1px 5px;
   background: var(--c-surface);
-  border: 1px solid rgba(255,255,255,0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 3px;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -413,16 +435,59 @@ kbd {
 
 /* ── Keyframes ─────────────────────────────────────────────────────────────── */
 @keyframes popup-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 @keyframes toggle-glow-pulse {
-  0%, 100% { opacity: 0.6; }
-  50%       { opacity: 1;   }
+  0%,
+  100% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @keyframes cam-pulse {
-  0%, 100% { box-shadow: 0 0 4px var(--c-red); }
-  50%       { box-shadow: 0 0 10px var(--c-red), 0 0 20px rgba(255,68,102,0.4); }
+  0%,
+  100% {
+    box-shadow: 0 0 4px var(--c-red);
+  }
+  50% {
+    box-shadow:
+      0 0 10px var(--c-red),
+      0 0 20px rgba(255, 68, 102, 0.4);
+  }
+}
+.camera-help {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 0.75rem;
+  color: #b91c1c;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.camera-help button {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.camera-help button:hover {
+  background: #b91c1c;
 }

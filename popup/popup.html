@@ -209,6 +209,19 @@
           <span class="cam-indicator-label" id="cam-label">Off</span>
         </div>
       </div>
+      <!-- Shown when camera permission is blocked -->
+      <section class="camera-help" id="camera-help" style="display:none;">
+        <p>Camera access was blocked. To fix:</p>
+        <button id="btn-open-tab">Grant permission in new tab</button>
+        <button id="btn-open-settings">Open Chrome camera settings</button>
+      </section>
+
+      <!-- Mode selection placeholder -->
+      <section class="modes">
+        <label><input type="checkbox" id="gestures" /> Gestures</label>
+        <label><input type="checkbox" id="voice" /> Voice</label>
+      </section>
+    </main>
 
       <div class="cam-feed-wrap" id="cam-feed-wrap">
         <div class="cam-scan-line"></div>
