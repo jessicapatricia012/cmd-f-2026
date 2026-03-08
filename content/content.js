@@ -24,6 +24,7 @@ const INITIAL_STATE = {
 let currentState = { ...INITIAL_STATE };
 let gestureEngine = null;
 let voiceEngine = null;
+let lastFocusedEditable = null;
 let hud = null;
 let debugList = null;
 let commandToastEl = null;
@@ -363,6 +364,14 @@ async function initVoiceEngine() {
       debugLog(
         `voice parsed: ${action}${meta?.labelText ? ` ("${meta.labelText}")` : meta?.clickIndex != null ? ` (#${meta.clickIndex})` : meta?.keyLabel ? ` (${meta.keyLabel})` : ""}`,
       );
+      if (action === "dictate-start") {
+        if (lastFocusedEditable) voiceEngine?.setDictationTarget?.(lastFocusedEditable);
+        return;
+      }
+      if (action === "dictate-stop") {
+        voiceEngine?.setDictationTarget?.(null);
+        return;
+      }
       emitCommand(SOURCE.VOICE, action, meta);
     },
     onTranscript: (text, meta) => {
@@ -387,6 +396,26 @@ async function initHud() {
   if (!factory) return;
 
   hud = factory();
+}
+
+function isEditableEl(el) {
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA" || el.isContentEditable) return true;
+  if (el.tagName === "INPUT") {
+    const t = (el.type || "text").toLowerCase();
+    return !["submit","button","checkbox","radio","file","range","color","hidden","image","reset"].includes(t);
+  }
+  return false;
+}
+
+function initDictationBridge() {
+  document.addEventListener("focusin", (e) => {
+    if (isEditableEl(e.target)) lastFocusedEditable = e.target;
+  });
+  document.addEventListener("focusout", () => {
+    voiceEngine?.setDictationTarget?.(null);
+    lastFocusedEditable = null;
+  });
 }
 
 function initLocalEventBridge() {
@@ -443,6 +472,7 @@ async function bootstrap() {
   initDebugPanel();
   debugLog("content script boot");
   await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
+  initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();
   initTabActivityListeners();

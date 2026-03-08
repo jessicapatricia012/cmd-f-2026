@@ -78,6 +78,14 @@ const DEFAULT_COMMAND_ALIASES = [
       "close clickables",
     ],
   },
+  {
+    action: "dictate-start",
+    phrases: ["start writing", "start dictation", "start typing", "begin writing"],
+  },
+  {
+    action: "dictate-stop",
+    phrases: ["stop writing", "stop dictation", "stop typing", "done writing", "done typing"],
+  },
 ];
 
 function normalizePhrase(phrase) {
@@ -436,6 +444,22 @@ async function getToken() {
   return token;
 }
 
+function isEditableInput(el) {
+  if (!el) return false;
+  if (el.tagName === "TEXTAREA") return true;
+  if (el.isContentEditable) return true;
+  if (el.tagName === "INPUT") {
+    const type = (el.type || "text").toLowerCase();
+    const excluded = new Set([
+      "submit", "button", "checkbox", "radio",
+      "file", "range", "color", "hidden", "image", "reset",
+    ]);
+    return !excluded.has(type);
+  }
+  return false;
+}
+
+
 function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let connection = null;
   let recognition = null;
@@ -449,8 +473,129 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let lastPartialNormalized = "";
   const lastFiredAt = new Map();
   let restartTimer = null;
+  let commitInterval = null;
   let consecutiveErrors = 0;
   let lastErrorCode = "";
+
+  const COMMIT_INTERVAL_MS = 30_000;
+
+  function startCommitInterval() {
+    if (commitInterval) return;
+    commitInterval = setInterval(() => {
+      try {
+        connection?.commit?.();
+      } catch (_error) {
+        // ignore
+      }
+    }, COMMIT_INTERVAL_MS);
+  }
+
+  function stopCommitInterval() {
+    if (commitInterval) {
+      clearInterval(commitInterval);
+      commitInterval = null;
+    }
+  }
+  let dictationTarget = null;
+  let partialStart = -1;
+  let lastPartialLength = 0;
+  let partialSpan = null;
+
+  function deleteLastWord(el) {
+    if (!el) return;
+    if (el.isContentEditable) {
+      document.execCommand("deleteWordBackward");
+      return;
+    }
+    const pos = el.selectionStart ?? el.value.length;
+    const before = el.value.slice(0, pos).trimEnd();
+    const lastSpace = before.lastIndexOf(" ");
+    const deleteFrom = lastSpace < 0 ? 0 : lastSpace + 1;
+    el.value = before.slice(0, deleteFrom) + el.value.slice(pos);
+    el.setSelectionRange(deleteFrom, deleteFrom);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function resetDictationState() {
+    partialStart = -1;
+    lastPartialLength = 0;
+    if (partialSpan) {
+      partialSpan.remove();
+      partialSpan = null;
+    }
+  }
+
+  function applyPartial(text) {
+    const el = dictationTarget;
+    if (!el || !text) return;
+
+    if (el.isContentEditable) {
+      if (!partialSpan) {
+        partialSpan = document.createElement("span");
+        partialSpan.style.cssText = "opacity:0.55;font-style:italic";
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(partialSpan);
+          range.setStartAfter(partialSpan);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          el.appendChild(partialSpan);
+        }
+      }
+      partialSpan.textContent = text;
+      return;
+    }
+
+    if (partialStart < 0) {
+      partialStart = el.selectionStart ?? el.value.length;
+      lastPartialLength = 0;
+    }
+    const before = el.value.slice(0, partialStart);
+    const after = el.value.slice(partialStart + lastPartialLength);
+    el.value = before + text + after;
+    lastPartialLength = text.length;
+    const pos = partialStart + text.length;
+    el.setSelectionRange(pos, pos);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function applyCommit(text) {
+    const el = dictationTarget;
+    const textWithSpace = text + " ";
+
+    if (el.isContentEditable) {
+      if (partialSpan) {
+        const textNode = document.createTextNode(textWithSpace);
+        partialSpan.replaceWith(textNode);
+        partialSpan = null;
+        const range = document.createRange();
+        range.setStartAfter(textNode);
+        range.collapse(true);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } else {
+        document.execCommand("insertText", false, textWithSpace);
+      }
+      return;
+    }
+
+    const insertAt =
+      partialStart >= 0 ? partialStart : (el.selectionStart ?? el.value.length);
+    const before = el.value.slice(0, insertAt);
+    const after = el.value.slice(insertAt + lastPartialLength);
+    el.value = before + textWithSpace + after;
+    const pos = insertAt + textWithSpace.length;
+    el.setSelectionRange(pos, pos);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+
+    partialStart = -1;
+    lastPartialLength = 0;
+  }
 
   const setStatus = (status) => {
     if (typeof onStatus === "function") onStatus(status);
@@ -507,6 +652,34 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
 
   function processTranscript(text, { committed = false } = {}) {
     const transcript = String(text || "");
+
+    // Dictation mode: show partials immediately, finalize on commit.
+    if (dictationTarget) {
+      const norm = normalizeText(transcript);
+      const stopPhrases = ["stop writing", "stop dictation", "stop typing", "done writing", "done typing"];
+      if (stopPhrases.some((p) => norm.includes(p))) {
+        resetDictationState();
+        dictationTarget = null;
+        setStatus(enabled ? "listening" : "off");
+        return;
+      }
+      const backspacePhrases = ["backspace", "delete that", "delete last word", "undo that"];
+      if (backspacePhrases.some((p) => norm.includes(p))) {
+        resetDictationState();
+        deleteLastWord(dictationTarget);
+        setStatus("dictating");
+        return;
+      }
+      if (committed) {
+        if (transcript.trim()) applyCommit(transcript.trim());
+        else resetDictationState();
+      } else if (transcript.trim()) {
+        applyPartial(transcript.trim());
+      }
+      setStatus("dictating");
+      return;
+    }
+
     const { normalized, matches } = detectCommands(transcript, {
       requireWakeWord,
       commandAliases,
@@ -524,6 +697,18 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     if (committed) {
       firedMarkers = new Set();
       lastPartialNormalized = "";
+    }
+  }
+
+  function setDictationTarget(el) {
+    resetDictationState();
+    dictationTarget = isEditableInput(el) ? el : null;
+    if (dictationTarget) {
+      firedMarkers = new Set();
+      lastPartialNormalized = "";
+      setStatus("dictating");
+    } else if (enabled) {
+      setStatus("listening");
     }
   }
 
@@ -645,6 +830,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         consecutiveErrors = 0;
         lastErrorCode = "";
         setStatus("listening");
+        startCommitInterval();
       });
 
       connection.on(RealtimeEvents.PARTIAL_TRANSCRIPT, (data) => {
@@ -674,6 +860,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       });
 
       connection.on(RealtimeEvents.CLOSE, () => {
+        stopCommitInterval();
         connection = null;
         if (enabled && shouldRestart) {
           scheduleRestart();
@@ -698,6 +885,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   }
 
   function stop() {
+    stopCommitInterval();
     if (restartTimer) {
       clearTimeout(restartTimer);
       restartTimer = null;
@@ -752,7 +940,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     }
   }
 
-  return { start, stop, setEnabled, setConfig };
+  return { start, stop, setEnabled, setConfig, setDictationTarget };
 }
 
 export { createVoiceHandler };
