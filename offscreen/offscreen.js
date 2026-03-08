@@ -853,8 +853,41 @@ class GestureHandler {
 const handler = new GestureHandler();
 handler.init().catch((err) => console.error('[AFK] offscreen failed:', err?.name, err?.message, err));
 
+// ---------------------------------------------------------------------------
+// TTS playback via dedicated worker + Web Audio API (no blob URLs)
+// ---------------------------------------------------------------------------
+const _ttsAudioCtx = new AudioContext();
+const _ttsWorker = new Worker(chrome.runtime.getURL('offscreen/tts-worker.js'));
+
+let _ttsActiveSrc = null;
+
+_ttsWorker.onmessage = async (e) => {
+  try {
+    // Stop any currently playing TTS before starting the new one
+    if (_ttsActiveSrc) {
+      try { _ttsActiveSrc.stop(); } catch (_) {}
+      _ttsActiveSrc = null;
+    }
+    if (_ttsAudioCtx.state === 'suspended') {
+      await _ttsAudioCtx.resume();
+    }
+    const decoded = await _ttsAudioCtx.decodeAudioData(e.data.buffer);
+    const src = _ttsAudioCtx.createBufferSource();
+    src.buffer = decoded;
+    src.connect(_ttsAudioCtx.destination);
+    src.onended = () => { _ttsActiveSrc = null; };
+    _ttsActiveSrc = src;
+    src.start();
+  } catch (err) {
+    console.warn('[AFK TTS] decode/play failed:', err);
+  }
+};
+
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'AFK_SET_ATTENTION') {
     handler.setAttentionPaused(!msg.enabled);
+  }
+  if (msg.type === 'AFK_TTS' && msg.text) {
+    _ttsWorker.postMessage({ text: msg.text });
   }
 });
