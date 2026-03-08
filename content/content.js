@@ -99,6 +99,7 @@ function getCommandLabel(action) {
     "go-back": "Go Back",
     "go-forward": "Go Forward",
     "new-tab": "New Tab",
+    "reload": "Reload",
   };
   return labels[action] || action;
 }

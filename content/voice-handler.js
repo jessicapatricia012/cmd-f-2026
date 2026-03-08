@@ -20,6 +20,7 @@ const COMMAND_ALIASES = [
   { action: "go-back", phrases: ["go back"] },
   { action: "go-forward", phrases: ["go forward"] },
   { action: "new-tab", phrases: ["new tab", "open tab"] },
+  { action: "reload", phrases: ["reload", "refresh", "reload page", "refresh page"] },
 ];
 
 function normalizeText(value) {
