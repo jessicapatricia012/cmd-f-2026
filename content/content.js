@@ -434,11 +434,131 @@ function initLocalEventBridge() {
   });
 }
 
+function findVideo() {
+  const videos = Array.from(document.querySelectorAll("video"));
+  return videos.find((v) => !v.paused && v.readyState >= 2) || videos[0] || null;
+}
+
+function executePageCommand(action, meta = {}) {
+  switch (action) {
+    case "page-down":
+      window.scrollBy({ top: window.innerHeight * 0.8, behavior: "smooth" });
+      break;
+    case "page-up":
+      window.scrollBy({ top: -window.innerHeight * 0.8, behavior: "smooth" });
+      break;
+    case "go-home":
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      break;
+    case "go-end":
+      window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+      break;
+    case "video-play": {
+      const v = findVideo();
+      v?.play();
+      break;
+    }
+    case "video-pause": {
+      const v = findVideo();
+      v?.pause();
+      break;
+    }
+    case "video-mute": {
+      const v = findVideo();
+      if (v) v.muted = true;
+      break;
+    }
+    case "video-unmute": {
+      const v = findVideo();
+      if (v) v.muted = false;
+      break;
+    }
+    case "video-next": {
+      const btn = document.querySelector(".ytp-next-button, [aria-label*='next' i], [aria-label*='skip' i]");
+      btn?.click();
+      break;
+    }
+    case "fullscreen-enter":
+      if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});
+      break;
+    case "fullscreen-exit":
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+      break;
+    case "press-key": {
+      const target = document.activeElement || document.body;
+      ["keydown", "keypress", "keyup"].forEach((type) => {
+        target.dispatchEvent(new KeyboardEvent(type, {
+          key: meta.key,
+          code: meta.code,
+          keyCode: meta.keyCode,
+          bubbles: true,
+          cancelable: true,
+        }));
+      });
+      break;
+    }
+    case "click-target": {
+      const focused = document.activeElement;
+      if (focused && focused !== document.body) focused.click();
+      break;
+    }
+    case "click-text": {
+      if (!meta.labelText) break;
+      const needle = meta.labelText.toLowerCase();
+      const candidates = document.querySelectorAll("a, button, [role='button'], [role='link'], input[type='submit'], input[type='button']");
+      for (const el of candidates) {
+        if ((el.textContent || el.value || el.ariaLabel || "").toLowerCase().includes(needle)) {
+          el.click();
+          break;
+        }
+      }
+      break;
+    }
+    case "click-number": {
+      const items = window.__afkClickableItems;
+      if (Array.isArray(items) && meta.clickIndex > 0) {
+        const item = items[meta.clickIndex - 1];
+        if (item?.rect) {
+          const el = document.elementFromPoint(item.rect.left + 4, item.rect.top + 4);
+          el?.click();
+        }
+      }
+      break;
+    }
+    case "list-clickable": {
+      const clickable = Array.from(document.querySelectorAll(
+        "a[href], button:not([disabled]), [role='button'], [role='link'], input[type='submit'], input[type='button']"
+      ))
+        .filter((el) => {
+          const r = el.getBoundingClientRect();
+          return r.width > 0 && r.height > 0 && r.top >= 0 && r.top < window.innerHeight;
+        })
+        .slice(0, 20)
+        .map((el, i) => ({
+          index: i + 1,
+          label: (el.textContent || el.value || el.ariaLabel || "").trim().slice(0, 40),
+          rect: el.getBoundingClientRect(),
+        }));
+      return { ok: true, items: clickable };
+    }
+    case "close-list":
+      window.dispatchEvent(new CustomEvent("afk:close-clickable-list"));
+      break;
+  }
+  return { ok: true };
+}
+
 function initBackgroundStateListener() {
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== CHANNEL.STATE_UPDATED) return;
-    mergeState(message.payload);
-    updateRuntimeModules();
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === CHANNEL.STATE_UPDATED) {
+      mergeState(message.payload);
+      updateRuntimeModules();
+      return;
+    }
+    if (message?.type === "afk:execute") {
+      const result = executePageCommand(message.action, message) || { ok: true };
+      sendResponse(result);
+    }
   });
 }
 
@@ -924,4 +1044,3 @@ bootstrap();
     }
   });
 })();
-bootstrap();
