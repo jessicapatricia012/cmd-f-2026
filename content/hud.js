@@ -8,7 +8,7 @@
  * Interface contract (listens for):
  *   window.__afkHUD.show()
  *   window.__afkHUD.hide()
- *   window.__afkHUD.showFeedback({ action: "scroll-down", source: "gesture"|"voice" })
+ *   window.__afkHUD.showFeedback({ action: "page-down", source: "gesture"|"voice" })
  *   window.__afkHUD.setCameraActive(bool)
  *   window.__afkHUD.setEnabled(bool)
  */
@@ -19,14 +19,26 @@
 
   // ── Action label map ───────────────────────────────────────────────────────
   const ACTION_LABELS = {
-    "scroll-down":  { icon: "↓", label: "Scroll Down"  },
-    "scroll-up":    { icon: "↑", label: "Scroll Up"    },
+    "page-down":  { icon: "↓", label: "Page Down"    },
+    "page-up":    { icon: "↑", label: "Page Up"      },
+    "go-home":    { icon: "⇤", label: "Home"         },
+    "go-end":     { icon: "⇥", label: "End"          },
     "click":        { icon: "◎", label: "Click"        },
+    "next-tab":     { icon: "▶", label: "Next Tab"     },
+    "prev-tab":     { icon: "◀", label: "Prev Tab"     },
     "tab-next":     { icon: "▶", label: "Next Tab"     },
     "tab-prev":     { icon: "◀", label: "Prev Tab"     },
     "go-back":      { icon: "↩", label: "Go Back"      },
     "go-forward":   { icon: "↪", label: "Go Forward"   },
     "new-tab":      { icon: "+", label: "New Tab"       },
+    "video-play":   { icon: "▶", label: "Video Play"    },
+    "video-pause":  { icon: "⏸", label: "Video Pause"   },
+    "video-next":   { icon: "⏭", label: "Video Next"    },
+    "video-mute":   { icon: "🔇", label: "Video Mute"    },
+    "video-unmute": { icon: "🔊", label: "Video Unmute"  },
+    "page-refresh": { icon: "⟳", label: "Refresh"       },
+    "fullscreen-enter": { icon: "⛶", label: "Fullscreen" },
+    "fullscreen-exit":  { icon: "🗗", label: "Exit Fullscreen" },
     "zoom-in":      { icon: "⊕", label: "Zoom In"      },
     "zoom-out":     { icon: "⊖", label: "Zoom Out"     },
   };
