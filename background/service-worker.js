@@ -5,6 +5,7 @@ const STORAGE_KEY = "afkState";
 const DEFAULT_STATE = {
   enabled: false,
   gesturesEnabled: true,
+  faceAttentionEnabled: true,
   voiceEnabled: true,
   requireWakeWord: true,
   customKeywords: {},
@@ -12,21 +13,24 @@ const DEFAULT_STATE = {
 let latestAttentionEvent = null;
 const attentionAutoPausedByTab = new Map();
 let lastAttentionActionAt = 0;
+let cachedState = { ...DEFAULT_STATE };
+const tabVideoPresence = new Map();
 
 async function getState() {
   const stored = await chrome.storage.sync.get(STORAGE_KEY);
-  return {
-    ...DEFAULT_STATE,
-    ...(stored[STORAGE_KEY] || {}),
-  };
+  cachedState = { ...DEFAULT_STATE, ...(stored[STORAGE_KEY] || {}) };
+  return cachedState;
 }
 
 async function setState(partial) {
   const current = await getState();
   const next = { ...current, ...partial };
   await chrome.storage.sync.set({ [STORAGE_KEY]: next });
+  cachedState = next;
   return next;
 }
+
+getState().catch(() => {});
 
 async function broadcastState(state) {
   const tabs = await chrome.tabs.query({});
@@ -65,7 +69,7 @@ async function handleAttentionPlayback(eventName) {
   if (now - lastAttentionActionAt < 300) return;
 
   const state = await getState();
-  if (!state.enabled || !state.gesturesEnabled) {
+  if (!state.enabled || state.faceAttentionEnabled === false) {
     broadcastAttentionEvent({
       type: "gesture",
       event: "attention:action",
@@ -951,6 +955,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "AFK_SET_STATE") {
       const nextState = await setState(message.payload || {});
       await broadcastState(nextState);
+      updateAttentionEnabled().catch(() => {});
       sendResponse({ ok: true, state: nextState });
       return;
     }
@@ -986,6 +991,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         detail: latestAttentionEvent?.detail || null,
         at: latestAttentionEvent?.at || null,
       });
+      return;
+    }
+
+    if (message.type === "AFK_VIDEO_PRESENCE") {
+      const tabId = sender?.tab?.id;
+      if (tabId != null) tabVideoPresence.set(tabId, Boolean(message.hasVideo));
+      updateAttentionEnabled().catch(() => {});
+      sendResponse({ ok: true });
       return;
     }
 
@@ -1087,6 +1100,21 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     autoStartIfPermitted().catch(console.error);
 });
 
+async function updateAttentionEnabled() {
+  const faceEnabled = cachedState.enabled && cachedState.faceAttentionEnabled !== false;
+  const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const hasVideo = activeTab?.id ? (tabVideoPresence.get(activeTab.id) || false) : false;
+  try {
+    await chrome.runtime.sendMessage({ type: "AFK_SET_ATTENTION", enabled: faceEnabled && hasVideo });
+  } catch {}
+}
+
+chrome.tabs.onActivated.addListener(() => updateAttentionEnabled().catch(() => {}));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabVideoPresence.delete(tabId);
+  attentionAutoPausedByTab.delete(tabId);
+});
+
 // ---------------------------------------------------------------------------
 // Message routing
 // ---------------------------------------------------------------------------
@@ -1140,6 +1168,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       return;
     }
 
+    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
+
     if (msg.event === "gesture:closetab") {
       chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         const id = tabs[0]?.id;
@@ -1158,6 +1188,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Zoom in / out on the sender tab (request from content script)
   if (msg.type === "zoom") {
+    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
     const tabId = sender.tab?.id;
     if (!tabId) return;
     chrome.tabs.getZoom(tabId, (current) => {
@@ -1172,6 +1203,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Switch to the adjacent tab (request from content script)
   if (msg.type === "tabswitch") {
+    if (!cachedState.enabled || !cachedState.gesturesEnabled) return;
     chrome.tabs.query({ currentWindow: true }, (tabs) => {
       const sorted = tabs.slice().sort((a, b) => a.index - b.index);
       const activeIdx = sorted.findIndex((t) => t.active);

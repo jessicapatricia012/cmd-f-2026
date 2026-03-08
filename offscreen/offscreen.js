@@ -73,17 +73,20 @@ const CFG = {
 // ---------------------------------------------------------------------------
 class GestureHandler {
   constructor() {
-    this._hands   = null;
     this._video   = document.getElementById('video');
     this._loopTimer = null;
     this._running = false;
     this._consecutiveSendFailures = 0;
+    this._handsSandbox = null;
+    this._handsReady = false;
+    this._handsSendInFlight = false;
     this._faceMesh = null;
     this._attentionEngine = 'none';
     this._attentionTickInFlight = false;
     this._attentionLastCheckMs = 0;
     this._attentionStatusLastSentAt = new Map();
     this._attentionFatalError = null;
+    this._attentionPaused = true;
 
     this._s = {
       pinching: false, pinchStartMs: 0, pinchStartNorm: null,
@@ -110,10 +113,14 @@ class GestureHandler {
 
   async init() {
     console.log('[AFK] offscreen init…');
-    this._setupAttention();
     this._setupHands();
+    this._setupAttention();
     await this._startCamera();
     console.log('[AFK] offscreen ready');
+  }
+
+  setAttentionPaused(paused) {
+    this._attentionPaused = Boolean(paused);
   }
 
   // -------------------------------------------------------------------------
@@ -121,16 +128,44 @@ class GestureHandler {
   // -------------------------------------------------------------------------
 
   _setupHands() {
-    this._hands = new Hands({
-      locateFile: (file) => chrome.runtime.getURL(`assets/mediapipe/${file}`),
+    this._handsSandbox = document.getElementById('hands-sandbox');
+    if (!this._handsSandbox) {
+      console.error('[AFK] Hands sandbox iframe not found');
+      return;
+    }
+
+    this._handsReady = false;
+
+    window.addEventListener('message', (event) => {
+      const data = event.data;
+      if (!data?.type) return;
+
+      if (data.type === 'hands-ready') {
+        this._handsReady = true;
+        console.log('[AFK] MediaPipe Hands (sandboxed) ready');
+      } else if (data.type === 'hands-results') {
+        this._handsSendInFlight = false;
+        this._consecutiveSendFailures = 0;
+        this._onResults({
+          multiHandLandmarks: data.landmarks || [],
+          multiHandedness: data.handedness || [],
+        });
+      } else if (data.type === 'hands-error') {
+        this._handsSendInFlight = false;
+        this._consecutiveSendFailures += 1;
+        console.warn('[AFK] Hands sandbox error:', data.error);
+        if (this._consecutiveSendFailures >= 20) {
+          this._running = false;
+          console.error('[AFK] stopping gesture loop after repeated sandbox failures');
+        }
+      }
     });
-    this._hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5,
+
+    this._handsSandbox.addEventListener('load', () => {
+      if (!this._handsReady) {
+        this._handsSandbox.contentWindow.postMessage({ type: 'hands-ping' }, '*');
+      }
     });
-    this._hands.onResults((r) => this._onResults(r));
   }
 
   _setupAttention() {
@@ -191,27 +226,37 @@ class GestureHandler {
 
   _loop() {
     if (!this._running) return;
-    this._hands
-      .send({ image: this._video })
-      .then(() => {
-        this._consecutiveSendFailures = 0;
+
+    const scheduleNext = () => {
+      if (!this._running) return;
+      this._tickAttention();
+      this._loopTimer = setTimeout(() => this._loop(), 33);
+    };
+
+    if (!this._handsReady || !this._handsSandbox || this._handsSendInFlight) {
+      scheduleNext();
+      return;
+    }
+
+    this._handsSendInFlight = true;
+    createImageBitmap(this._video)
+      .then((bitmap) => {
+        this._handsSandbox.contentWindow.postMessage(
+          { type: 'hands-frame', image: bitmap },
+          '*',
+          [bitmap],
+        );
+        setTimeout(() => {
+          if (this._handsSendInFlight) {
+            this._handsSendInFlight = false;
+          }
+        }, 2000);
       })
       .catch((err) => {
-        this._consecutiveSendFailures += 1;
-        console.warn('[AFK] hands.send error:', err);
-
-        if (this._consecutiveSendFailures >= 20) {
-          this._running = false;
-          console.error('[AFK] stopping gesture loop after repeated MediaPipe failures');
-          return;
-        }
+        this._handsSendInFlight = false;
+        console.warn('[AFK] hands frame capture error:', err);
       })
-      .finally(() => {
-        if (!this._running) return;
-        this._tickAttention();
-        // Offscreen documents can throttle/skip rAF because they are never visible.
-        this._loopTimer = setTimeout(() => this._loop(), 33);
-      });
+      .finally(() => scheduleNext());
   }
 
   // -------------------------------------------------------------------------
@@ -499,6 +544,7 @@ class GestureHandler {
   }
 
   _tickAttention() {
+    if (this._attentionPaused) return;
     if (this._attentionEngine === 'none' || this._attentionEngine === 'face-mesh-pending'
         || this._attentionTickInFlight || this._attentionFatalError) return;
     const now = Date.now();
@@ -641,3 +687,9 @@ class GestureHandler {
 
 const handler = new GestureHandler();
 handler.init().catch((err) => console.error('[AFK] offscreen failed:', err?.name, err?.message, err));
+
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === 'AFK_SET_ATTENTION') {
+    handler.setAttentionPaused(!msg.enabled);
+  }
+});
