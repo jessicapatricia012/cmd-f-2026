@@ -11,10 +11,20 @@ const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
 const COMMAND_ALIASES = [
-  { action: "page-down", phrases: ["page down", "scroll down", "go down"] },
-  { action: "page-up", phrases: ["page up", "scroll up", "go up"] },
-  { action: "zoom-in", phrases: ["zoom in", "zoom in please"] },
-  { action: "zoom-out", phrases: ["zoom out", "zoom out please"] },
+  { action: "page-down", phrases: ["page down", "scroll down"] },
+  { action: "page-up", phrases: ["page up", "scroll up"] },
+  { action: "go-home", phrases: ["home", "go home", "top", "to top"] },
+  { action: "go-end", phrases: ["end", "go end", "bottom", "to bottom"] },
+  { action: "video-play", phrases: ["play", "resume", "play video", "video play"] },
+  { action: "video-pause", phrases: ["pause", "pause video", "paused video", "video pause", "stop video"] },
+  { action: "video-next", phrases: ["next video", "skip video", "video next"] },
+  { action: "video-mute", phrases: ["mute", "mute video", "video mute"] },
+  { action: "video-unmute", phrases: ["unmute", "unmute video", "video unmute"] },
+  { action: "page-refresh", phrases: ["refresh", "reload", "refresh page"] },
+  { action: "fullscreen-enter", phrases: ["fullscreen", "enter fullscreen"] },
+  { action: "fullscreen-exit", phrases: ["exit fullscreen", "leave fullscreen"] },
+  { action: "zoom-in", phrases: ["zoom in"] },
+  { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
   { action: "prev-tab", phrases: ["previous tab", "prev tab", "back tab"] },
   { action: "go-back", phrases: ["go back"] },
@@ -123,6 +133,11 @@ function getScribeModule() {
     );
   }
   return scribeModulePromise;
+}
+
+function isYouTubeHost() {
+  const host = (window.location.hostname || "").toLowerCase();
+  return host === "youtube.com" || host === "www.youtube.com" || host === "m.youtube.com";
 }
 
 async function getToken() {
@@ -280,6 +295,13 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     setStatus("starting");
 
     try {
+      if (isYouTubeHost()) {
+        forceBrowserSpeech = true;
+        setStatus("fallback: browser speech (youtube csp)");
+        startBrowserSpeech();
+        return;
+      }
+
       if (forceBrowserSpeech) {
         startBrowserSpeech();
         return;

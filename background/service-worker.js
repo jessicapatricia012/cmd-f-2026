@@ -80,6 +80,155 @@ const ACTION_HANDLERS = {
       });
     });
   },
+  "go-home": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        window.scrollTo({ top: 0, left: 0, behavior: "smooth" });
+      });
+    });
+  },
+  "go-end": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const doc = document.documentElement;
+        const body = document.body;
+        const maxTop = Math.max(
+          doc?.scrollHeight || 0,
+          body?.scrollHeight || 0,
+          doc?.offsetHeight || 0,
+          body?.offsetHeight || 0
+        );
+        window.scrollTo({ top: maxTop, left: 0, behavior: "smooth" });
+      });
+    });
+  },
+  "video-play": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const ytPlayer = document.getElementById("movie_player");
+        if (ytPlayer && typeof ytPlayer.playVideo === "function") {
+          ytPlayer.playVideo();
+          return;
+        }
+
+        const videos = Array.from(document.querySelectorAll("video"));
+        const target =
+          videos.find((video) => !video.paused || !video.ended) ||
+          videos.find((video) => video.readyState >= 1) ||
+          videos[0];
+        if (!target) return;
+        target.play().catch(() => {});
+      });
+    });
+  },
+  "video-pause": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const ytPlayer = document.getElementById("movie_player");
+        if (ytPlayer && typeof ytPlayer.pauseVideo === "function") {
+          ytPlayer.pauseVideo();
+          return;
+        }
+
+        const videos = Array.from(document.querySelectorAll("video"));
+        const target = videos.find((video) => !video.paused) || videos[0];
+        if (!target) return;
+        target.pause();
+      });
+    });
+  },
+  "video-next": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const ytPlayer = document.getElementById("movie_player");
+        if (ytPlayer && typeof ytPlayer.nextVideo === "function") {
+          ytPlayer.nextVideo();
+          return;
+        }
+
+        const videos = Array.from(document.querySelectorAll("video"));
+        const target = videos.find((video) => !video.paused || video.currentTime > 0) || videos[0];
+        if (!target) return;
+
+        if (Number.isFinite(target.duration) && target.duration > 0) {
+          const nextTime = Math.min(target.currentTime + 10, Math.max(target.duration - 0.05, 0));
+          target.currentTime = nextTime;
+          return;
+        }
+
+        target.currentTime = target.currentTime + 10;
+      });
+    });
+  },
+  "video-mute": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const ytPlayer = document.getElementById("movie_player");
+        if (ytPlayer && typeof ytPlayer.mute === "function") {
+          ytPlayer.mute();
+          return;
+        }
+
+        const videos = Array.from(document.querySelectorAll("video"));
+        for (const video of videos) {
+          video.muted = true;
+        }
+      });
+    });
+  },
+  "video-unmute": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, () => {
+        const ytPlayer = document.getElementById("movie_player");
+        if (ytPlayer && typeof ytPlayer.unMute === "function") {
+          ytPlayer.unMute();
+          return;
+        }
+
+        const videos = Array.from(document.querySelectorAll("video"));
+        for (const video of videos) {
+          video.muted = false;
+        }
+      });
+    });
+  },
+  "page-refresh": async () => {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!active?.id) return;
+    await chrome.tabs.reload(active.id);
+  },
+  "fullscreen-enter": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, async () => {
+        if (document.fullscreenElement) return;
+        const target =
+          document.documentElement ||
+          document.querySelector("video") ||
+          document.body;
+        if (target?.requestFullscreen) {
+          try {
+            await target.requestFullscreen();
+          } catch {
+            // Ignore browser gesture restrictions.
+          }
+        }
+      });
+    });
+  },
+  "fullscreen-exit": async () => {
+    await withActiveTab(async (tab) => {
+      await executeInTab(tab.id, async () => {
+        if (!document.fullscreenElement) return;
+        if (document.exitFullscreen) {
+          try {
+            await document.exitFullscreen();
+          } catch {
+            // Ignore browser gesture restrictions.
+          }
+        }
+      });
+    });
+  },
   "zoom-in": async () => {
     const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!active?.id) return;
