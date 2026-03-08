@@ -279,6 +279,10 @@ const ACTION_HANDLERS = {
   "new-tab": async () => {
     await chrome.tabs.create({});
   },
+  "reload": async () => {
+    const [active] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (active?.id) await chrome.tabs.reload(active.id);
+  },
 };
 
 chrome.runtime.onInstalled.addListener(async () => {

@@ -101,6 +101,7 @@ function getCommandLabel(action) {
     "go-back": "Go Back",
     "go-forward": "Go Forward",
     "new-tab": "New Tab",
+    "reload": "Reload",
     "video-play": "Video Play",
     "video-pause": "Video Pause",
     "video-next": "Video Next",
