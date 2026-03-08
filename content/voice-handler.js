@@ -498,6 +498,8 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
   let partialStart = -1;
   let lastPartialLength = 0;
   let partialSpan = null;
+  let searchPauseTimer = null;
+  let lastSearchQuery = null;
 
   function deleteLastWord(el) {
     if (!el) return;
@@ -695,6 +697,43 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       }
       setStatus("dictating");
       return;
+    }
+
+    const rawNorm = normalizeText(transcript);
+    const vsRe = [
+      /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
+      /\blook\s+(?:up|for)\s+(.+?)\s*$/,
+      /\bfind\s+(.+?)\s*$/,
+    ];
+    let detectedQuery = null;
+    for (const re of vsRe) {
+      const m = re.exec(rawNorm);
+      if (m && m[1].trim()) { detectedQuery = m[1].trim(); break; }
+    }
+    if (detectedQuery) {
+      const fireSearch = (q, isCommitted) => {
+        if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+        lastSearchQuery = null;
+        if (typeof onCommand === "function")
+          onCommand("voice-search", { transcript, committed: isCommitted, source: "voice", searchQuery: q });
+        setStatus(`search: ${q}`);
+        firedMarkers = new Set(); lastPartialNormalized = "";
+      };
+      if (committed) { fireSearch(detectedQuery, true); return; }
+      const queryGrew = !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
+      lastSearchQuery = detectedQuery;
+      if (queryGrew) {
+        if (searchPauseTimer) clearTimeout(searchPauseTimer);
+        searchPauseTimer = setTimeout(() => {
+          searchPauseTimer = null;
+          const q = lastSearchQuery;
+          if (q) fireSearch(q, false);
+        }, 500);
+      }
+      return;
+    } else {
+      if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
+      lastSearchQuery = null;
     }
 
     const { normalized, matches } = detectCommands(transcript, {

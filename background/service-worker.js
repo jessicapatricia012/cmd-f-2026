@@ -846,6 +846,52 @@ const ACTION_HANDLERS = {
     }, targetTabId);
     return result;
   },
+  "voice-search": async (targetTabId, payload = {}) => {
+    const query = String(payload.searchQuery || "").trim();
+    if (!query) return { ok: false, error: "No search query provided" };
+    let status = { ok: false, error: "No search input found" };
+    await withActiveTab(async (tab) => {
+      status = await executeInTabWithResult(tab.id, (q) => {
+        const selectors = [
+          "input[type='search']", "input[name='q']", "input[name='query']",
+          "input[name='search']", "input[name='s']",
+          "input[placeholder*='search' i]", "input[aria-label*='search' i]",
+          "input[title*='search' i]", "textarea[name='q']", "input[type='text']",
+        ];
+        let input = null;
+        const active = document.activeElement;
+        if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) &&
+            active.type !== "hidden" && active.type !== "checkbox" && active.type !== "radio")
+          input = active;
+        if (!input) {
+          for (const sel of selectors) {
+            const el = document.querySelector(sel);
+            if (el instanceof HTMLElement) {
+              const st = window.getComputedStyle(el);
+              if (st.display !== "none" && st.visibility !== "hidden") { input = el; break; }
+            }
+          }
+        }
+        if (!input) return { ok: false, error: "No search input found" };
+        input.focus();
+        const proto = input instanceof HTMLTextAreaElement
+          ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        nativeSetter ? nativeSetter.call(input, q) : (input.value = q);
+        input.value = q;
+        input.dispatchEvent(new Event("input",  { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        const ei = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+        input.dispatchEvent(new KeyboardEvent("keydown",  ei));
+        input.dispatchEvent(new KeyboardEvent("keypress", ei));
+        input.dispatchEvent(new KeyboardEvent("keyup",    ei));
+        const form = input.closest("form");
+        if (form) { try { form.requestSubmit ? form.requestSubmit() : form.submit(); } catch (_) {} }
+        return { ok: true, matched: q };
+      }, [query]);
+    }, targetTabId);
+    return status;
+  },
 };
 
 chrome.runtime.onInstalled.addListener(async () => {

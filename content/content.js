@@ -124,6 +124,7 @@ function getCommandLabel(action, meta = {}) {
     "click-number": meta?.clickIndex ? `Click #${meta.clickIndex}` : "Click",
     "list-clickable": "Show Clickable",
     "close-list": "Close List",
+    "voice-search": meta?.searchQuery ? `Search: ${meta.searchQuery}` : "Voice Search",
   };
   return labels[action] || action;
 }
