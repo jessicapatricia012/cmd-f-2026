@@ -39,9 +39,20 @@
     "48": "assets/icons/icon48.png",
     "128": "assets/icons/icon128.png"
   },
+  "sandbox": {
+    "pages": [
+      "offscreen/face-mesh-sandbox.html",
+      "offscreen/hands-sandbox.html"
+    ]
+  },
   "web_accessible_resources": [
     {
-      "resources": ["content/*", "assets/icons/*"],
+      "resources": [
+        "content/*",
+        "assets/icons/*",
+        "assets/mediapipe/*",
+        "node_modules/@mediapipe/face_mesh/*"
+      ],
       "matches": ["<all_urls>"]
     }
   ]

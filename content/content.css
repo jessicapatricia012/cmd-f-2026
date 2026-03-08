@@ -5,24 +5,24 @@
    HUD overlay styles + feedback animations
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;600;700&display=swap");
 
 /* ── CSS Variables ─────────────────────────────────────────────────────────── */
 #afk-hud-root {
-  --afk-accent:       #00ffe0;
+  --afk-accent: #00ffe0;
   --afk-accent-voice: #bf80ff;
-  --afk-bg:           rgba(8, 12, 20, 0.88);
-  --afk-border:       rgba(0, 255, 224, 0.18);
-  --afk-text:         #c8d8e8;
-  --afk-text-dim:     rgba(200, 216, 232, 0.45);
-  --afk-red:          #ff4466;
-  --afk-green:        #00ffe0;
-  --afk-panel-w:      192px;
-  --afk-radius:       12px;
-  --afk-font-mono:    'Share Tech Mono', monospace;
-  --afk-font-ui:      'Rajdhani', sans-serif;
-  --afk-shadow:       0 8px 40px rgba(0, 255, 224, 0.08),
-                      0 2px 12px rgba(0, 0, 0, 0.6);
+  --afk-bg: rgba(8, 12, 20, 0.88);
+  --afk-border: rgba(0, 255, 224, 0.18);
+  --afk-text: #c8d8e8;
+  --afk-text-dim: rgba(200, 216, 232, 0.45);
+  --afk-red: #ff4466;
+  --afk-green: #00ffe0;
+  --afk-panel-w: 192px;
+  --afk-radius: 12px;
+  --afk-font-mono: "Share Tech Mono", monospace;
+  --afk-font-ui: "Rajdhani", sans-serif;
+  --afk-shadow:
+    0 8px 40px rgba(0, 255, 224, 0.08), 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 
 /* ── Root container ────────────────────────────────────────────────────────── */
@@ -37,7 +37,9 @@
 
   opacity: 0;
   transform: translateY(12px) scale(0.96);
-  transition: opacity 0.3s ease, transform 0.3s ease;
+  transition:
+    opacity 0.3s ease,
+    transform 0.3s ease;
 }
 
 #afk-hud-root.afk-hud--visible {
@@ -60,16 +62,23 @@
 }
 
 #afk-hud-panel::before {
-  content: '';
+  content: "";
   display: block;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--afk-accent), transparent);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--afk-accent),
+    transparent
+  );
   opacity: 0.5;
 }
 
 #afk-hud-panel.afk-hud-panel--enabled {
   border-color: rgba(0, 255, 224, 0.35);
-  box-shadow: var(--afk-shadow), 0 0 0 1px rgba(0, 255, 224, 0.08);
+  box-shadow:
+    var(--afk-shadow),
+    0 0 0 1px rgba(0, 255, 224, 0.08);
 }
 
 #afk-hud-panel.afk-hud-panel--enabled::before {
@@ -77,14 +86,14 @@
   animation: afk-scan-line 3s linear infinite;
 }
 
-/* ── Status bar ────────────────────────────────────────────────────────────── */
-#afk-hud-status {
+── Status bar ──────────────────────────────────────────────────────────────
+/* #afk-hud-status {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 10px 12px 8px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
-}
+} */
 
 #afk-logo {
   font-family: var(--afk-font-mono);
@@ -109,19 +118,25 @@
   height: 6px;
   border-radius: 50%;
   background: var(--afk-text-dim);
-  transition: background 0.3s ease, box-shadow 0.3s ease;
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
   flex-shrink: 0;
 }
 
 #afk-cam-dot.afk-cam-dot--active {
   background: var(--afk-red);
-  box-shadow: 0 0 6px var(--afk-red), 0 0 14px rgba(255,68,102,0.5);
+  box-shadow:
+    0 0 6px var(--afk-red),
+    0 0 14px rgba(255, 68, 102, 0.5);
   animation: afk-pulse-red 1.6s ease-in-out infinite;
 }
 
 #afk-enabled-dot.afk-enabled-dot--on {
   background: var(--afk-green);
-  box-shadow: 0 0 6px var(--afk-green), 0 0 14px rgba(0,255,224,0.4);
+  box-shadow:
+    0 0 6px var(--afk-green),
+    0 0 14px rgba(0, 255, 224, 0.4);
 }
 
 #afk-cam-label,
@@ -150,7 +165,9 @@
 
   opacity: 0;
   transform: translateY(4px);
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 #afk-feedback-zone.afk-feedback--active {
@@ -162,7 +179,9 @@
 #afk-feedback-zone.afk-feedback--exit {
   opacity: 0;
   transform: translateY(-4px);
-  transition: opacity 0.4s ease, transform 0.4s ease;
+  transition:
+    opacity 0.4s ease,
+    transform 0.4s ease;
 }
 
 #afk-feedback-icon {
@@ -229,33 +248,73 @@
 
 /* ── Keyframes ─────────────────────────────────────────────────────────────── */
 @keyframes afk-pulse-red {
-  0%, 100% { box-shadow: 0 0 6px var(--afk-red), 0 0 14px rgba(255,68,102,0.5); }
-  50%       { box-shadow: 0 0 10px var(--afk-red), 0 0 24px rgba(255,68,102,0.7); }
+  0%,
+  100% {
+    box-shadow:
+      0 0 6px var(--afk-red),
+      0 0 14px rgba(255, 68, 102, 0.5);
+  }
+  50% {
+    box-shadow:
+      0 0 10px var(--afk-red),
+      0 0 24px rgba(255, 68, 102, 0.7);
+  }
 }
 
 @keyframes afk-scan-line {
-  0%   { background-position: -200% center; }
-  100% { background-position: 300% center; }
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 300% center;
+  }
 }
 
 @keyframes afk-feedback-pulse {
-  0%   { transform: scale(0.96) translateY(0); }
-  50%  { transform: scale(1.02) translateY(0); }
-  100% { transform: scale(1)    translateY(0); }
+  0% {
+    transform: scale(0.96) translateY(0);
+  }
+  50% {
+    transform: scale(1.02) translateY(0);
+  }
+  100% {
+    transform: scale(1) translateY(0);
+  }
 }
 
 @keyframes afk-icon-pop {
-  0%   { transform: scale(0.7);  opacity: 0; }
-  70%  { transform: scale(1.15); opacity: 1; }
-  100% { transform: scale(1);    opacity: 1; }
+  0% {
+    transform: scale(0.7);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
 }
 
 @keyframes afk-ripple-out {
-  0%   { opacity: 0.6; transform: scale(1);    }
-  100% { opacity: 0;   transform: scale(1.25); }
+  0% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
 }
 
 @keyframes afk-ripple-out-voice {
-  0%   { opacity: 0.5; transform: scale(1);    }
-  100% { opacity: 0;   transform: scale(1.3);  }
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.3);
+  }
 }
