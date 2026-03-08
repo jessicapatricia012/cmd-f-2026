@@ -47,10 +47,7 @@ const DEFAULT_COMMAND_ALIASES = [
     action: "click-target",
     phrases: ["click", "click that", "click this", "select this"],
   },
-<<<<<<< HEAD
-=======
   { action: "enter-key", phrases: ["enter", "press enter", "hit enter", "submit"] },
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
   { action: "zoom-in", phrases: ["zoom in"] },
   { action: "zoom-out", phrases: ["zoom out"] },
   { action: "next-tab", phrases: ["next tab", "tab next"] },
@@ -434,20 +431,14 @@ function detectCommands(
 // switch to browser speech after repeated failures.
 if (typeof window !== "undefined") {
   window.addEventListener("error", (event) => {
-<<<<<<< HEAD
-    if (String(event?.error?.message || "").includes("WebSocket is not connected")) {
-=======
     if (
       String(event?.error?.message || "").includes("WebSocket is not connected")
     ) {
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
       event.preventDefault();
     }
   });
 }
 
-<<<<<<< HEAD
-=======
 // Patch AudioWorklet.prototype.addModule so that blob:/data: URLs created by the
 // ElevenLabs bundle are redirected to our self-hosted worklet file on pages with a
 // strict script-src CSP that blocks blob: and data: schemes.
@@ -491,7 +482,6 @@ if (typeof AudioWorklet !== "undefined") {
   };
 }
 
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
 let scribeModulePromise = null;
 
 function getScribeModule() {
@@ -787,37 +777,6 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
     }
 
     const rawNorm = normalizeText(transcript);
-<<<<<<< HEAD
-    // Respect requireWakeWord: require "afk" prefix when wake word mode is on.
-    // e.g. "AFK search for dogs" / "AFK find weather" / "AFK look up recipes"
-    const vsRe = requireWakeWord
-      ? [
-          /\bafk\s+search(?:\s+for)?\s+(.+?)\s*$/,
-          /\bafk\s+look\s+(?:up|for)\s+(.+?)\s*$/,
-          /\bafk\s+find\s+(.+?)\s*$/,
-        ]
-      : [
-          /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
-          /\blook\s+(?:up|for)\s+(.+?)\s*$/,
-          /\bfind\s+(.+?)\s*$/,
-        ];
-    let detectedQuery = null;
-    for (const re of vsRe) {
-      const m = re.exec(rawNorm);
-      if (m && m[1].trim()) { detectedQuery = m[1].trim(); break; }
-    }
-    if (detectedQuery) {
-      const fireSearch = (q, isCommitted) => {
-        if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
-        lastSearchQuery = null;
-        if (typeof onCommand === "function")
-          onCommand("voice-search", { transcript, committed: isCommitted, source: "voice", searchQuery: q });
-        setStatus(`search: ${q}`);
-        firedMarkers = new Set(); lastPartialNormalized = "";
-      };
-      if (committed) { fireSearch(detectedQuery, true); return; }
-      const queryGrew = !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
-=======
     const vsRe = [
       /\bsearch(?:\s+for)?\s+(.+?)\s*$/,
       /\blook\s+(?:up|for)\s+(.+?)\s*$/,
@@ -855,7 +814,6 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       }
       const queryGrew =
         !lastSearchQuery || detectedQuery.length > lastSearchQuery.length;
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
       lastSearchQuery = detectedQuery;
       if (queryGrew) {
         if (searchPauseTimer) clearTimeout(searchPauseTimer);
@@ -867,14 +825,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
       }
       return;
     } else {
-<<<<<<< HEAD
-      if (searchPauseTimer) { clearTimeout(searchPauseTimer); searchPauseTimer = null; }
-=======
       if (searchPauseTimer) {
         clearTimeout(searchPauseTimer);
         searchPauseTimer = null;
       }
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
       lastSearchQuery = null;
     }
 
@@ -1002,15 +956,10 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
         return;
       }
 
-<<<<<<< HEAD
       const [{ Scribe, RealtimeEvents, CommitStrategy }, token] = await Promise.all([
         getScribeModule(),
         getToken(),
       ]);
-=======
-      const [{ Scribe, RealtimeEvents, CommitStrategy }, token] =
-        await Promise.all([getScribeModule(), getToken()]);
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
       if (!enabled) {
         starting = false;
         return;
@@ -1074,13 +1023,7 @@ function createVoiceHandler({ onCommand, onStatus, onTranscript } = {}) {
           consecutiveErrors += 1;
           if (consecutiveErrors >= 3) {
             forceBrowserSpeech = true;
-<<<<<<< HEAD
             console.warn("[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech");
-=======
-            console.warn(
-              "[AFK] ElevenLabs disconnected repeatedly, falling back to browser speech",
-            );
->>>>>>> 41d3560b541935714e58c05336f09a57a2f3d9d0
             setStatus("fallback: browser speech");
           }
           scheduleRestart();
