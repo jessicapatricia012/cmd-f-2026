@@ -1001,8 +1001,8 @@ async function startOffscreen() {
   if (await offscreenExists()) return;
   await chrome.offscreen.createDocument({
     url: chrome.runtime.getURL("offscreen/offscreen.html"),
-    reasons: ["USER_MEDIA"],
-    justification: "Webcam access for real-time hand gesture recognition",
+    reasons: ["USER_MEDIA", "AUDIO_PLAYBACK"],
+    justification: "Webcam access for hand gesture recognition and TTS audio playback",
   });
 }
 
@@ -1263,6 +1263,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: false, error: err?.message || String(err) });
       });
     return true;
+  }
+
+  // Forward TTS requests from content scripts → offscreen document for playback
+  if (msg.type === "AFK_TTS") {
+    chrome.runtime.sendMessage({ type: "AFK_TTS", text: msg.text }).catch(() => {});
+    return false;
   }
 
   // Relay gesture events from offscreen doc → active tab's content script

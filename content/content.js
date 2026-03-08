@@ -52,6 +52,19 @@ let eyeAttentionSignalSeen = false;
 let eyeAttentionInitTimer = null;
 let lastVideoPresence = null;
 
+// ---------------------------------------------------------------------------
+// ElevenLabs TTS — announces completed gestures
+// Audio plays in the offscreen document to bypass content-script autoplay rules.
+// ---------------------------------------------------------------------------
+let _lastTTSMs = 0;
+
+function announceGesture(text) {
+  const now = Date.now();
+  if (now - _lastTTSMs < 1500) return; // prevent overlapping announcements
+  _lastTTSMs = now;
+  chrome.runtime.sendMessage({ type: "AFK_TTS", text }).catch(() => {});
+}
+
 function hideCommandToast({ flyUp = false } = {}) {
   if (!commandToastEl) return;
   commandToastEl.style.opacity = "0";
@@ -1301,7 +1314,7 @@ async function bootstrap() {
   debugLogGesture("content script boot");
   debugLogFace("content script boot");
   debugLogVoice("content script boot");
-  await Promise.all([initHud(), initGestureEngine(), initVoiceEngine()]);
+  await Promise.all([initHud(), initVoiceEngine()]);
   initDictationBridge();
   initLocalEventBridge();
   initBackgroundStateListener();
@@ -1584,6 +1597,7 @@ async function bootstrap() {
       now - dwellStartMs >= DWELL_CLICK_MS &&
       now - dwellLastClickMs >= DWELL_COOLDOWN_MS
     ) {
+      announceGesture("Click");
       dispatchClickAt(x, y);
       dwellLastClickMs = now;
       dwellLocked = true;
@@ -1681,6 +1695,7 @@ async function bootstrap() {
         cursorLostTimer = null;
       }, CURSOR_LOST_GRACE_MS);
     } else if (event === "gesture:click") {
+      announceGesture("Click");
       if (!USE_DWELL_CLICK) {
         const { x, y } = toScreen(detail.normX, detail.normY);
         dispatchClickAt(x, y);
@@ -1746,8 +1761,10 @@ async function bootstrap() {
         window.scrollBy({ left: dx, top: dy, behavior: "auto" });
       }
     } else if (event === "gesture:zoom") {
+      announceGesture(detail.direction === "in" ? "Zoom in" : "Zoom out");
       chrome.runtime.sendMessage({ type: "zoom", direction: detail.direction });
     } else if (event === "gesture:navigate") {
+      announceGesture(detail.direction === "back" ? "Go back" : "Go forward");
       if (detail.direction === "back") history.back();
       else history.forward();
     } else if (event === "gesture:tabswitch:start") {
@@ -1758,10 +1775,9 @@ async function bootstrap() {
       label.style.left = base + detail.normDx * window.innerWidth * 0.3 + "px";
     } else if (event === "gesture:tabswitch:end") {
       setCursorState("idle");
-      chrome.runtime.sendMessage({
-        type: "tabswitch",
-        direction: detail.normDx > 0 ? "next" : "prev",
-      });
+      const tabDir = detail.normDx > 0 ? "next" : "prev";
+      announceGesture(tabDir === "next" ? "Next tab" : "Previous tab");
+      chrome.runtime.sendMessage({ type: "tabswitch", direction: tabDir });
     }
   });
 })();
