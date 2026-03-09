@@ -18,9 +18,18 @@ const elevenlabs = elevenlabsApiKey
   ? new ElevenLabsClient({ apiKey: elevenlabsApiKey })
   : null;
 
-app.use(cors({ origin: "*" })); // restrict in production
-app.use(express.json());
-
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin || origin.startsWith("chrome-extension://")) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+  })
+);
+  
 app.get("/attention-companion", (_req, res) => {
   res.sendFile(path.join(__dirname, "attention-companion.html"));
 });

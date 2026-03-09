@@ -5,7 +5,7 @@
 self.onmessage = async (e) => {
   const { text } = e.data;
   try {
-    const res = await fetch("http://localhost:5001/tts", {
+    const res = await fetch("https://afk-chrome-extension-production.up.railway.app/tts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),

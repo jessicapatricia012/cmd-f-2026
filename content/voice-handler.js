@@ -6,7 +6,7 @@ let WAKE_WORD = "afk";
 const COMMAND_COOLDOWN_MS = 900;
 const RESTART_BASE_DELAY_MS = 700;
 const RESTART_MAX_DELAY_MS = 4000;
-const TOKEN_SERVER = "http://localhost:5001/scribe-token";
+const TOKEN_SERVER = "https://afk-chrome-extension-production.up.railway.app/scribe-token";
 const SpeechRecognitionCtor =
   window.SpeechRecognition || window.webkitSpeechRecognition || null;
 
